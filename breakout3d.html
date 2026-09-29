@@ -1,0 +1,1528 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Breakout 3D - Cyberpunk Arcade</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg-dark: #04060e;
+    --cyan: #00f0ff;
+    --magenta: #ff007f;
+    --gold: #ffd700;
+  }
+
+  * {
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--bg-dark);
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #eaf4ff;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+
+  /* Cursor is hidden only over the play area, never over UI */
+  body.playing #game-canvas-host { cursor: none; }
+
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  /* HUD Overlay */
+  #hud {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 18px clamp(14px, 3vw, 36px);
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  .hud-group {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .hud-label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(9px, 1.4vw, 11px);
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 2px;
+    white-space: nowrap;
+  }
+
+  .hud-value {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(16px, 3vw, 26px);
+    font-weight: 900;
+    color: var(--cyan);
+    text-shadow: 0 0 12px rgba(0, 240, 255, 0.7);
+    white-space: nowrap;
+  }
+
+  .hud-value.record { color: var(--gold); text-shadow: 0 0 12px rgba(255, 215, 0, 0.6); }
+
+  #lives-hud {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    min-height: 12px;
+    padding-top: 6px;
+  }
+
+  .life-ship {
+    width: clamp(16px, 2.5vw, 24px);
+    height: 9px;
+    background: linear-gradient(90deg, #00f0ff, #0088ff);
+    border-radius: 4px;
+    box-shadow: 0 0 10px #00f0ff;
+  }
+
+  /* Mode switch lives in the bottom-right so it can never collide with the HUD */
+  #mode-switch-btn {
+    position: fixed;
+    bottom: 18px;
+    right: 18px;
+    z-index: 15;
+  }
+
+  #mode-switch-btn a {
+    display: inline-block;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    letter-spacing: 1px;
+    color: #7fe8ff;
+    text-decoration: none;
+    background: rgba(0, 240, 255, 0.12);
+    border: 1px solid rgba(0, 240, 255, 0.4);
+    padding: 8px 14px;
+    border-radius: 20px;
+    backdrop-filter: blur(6px);
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+
+  #mode-switch-btn a:hover {
+    background: rgba(0, 240, 255, 0.3);
+    box-shadow: 0 0 15px rgba(0, 240, 255, 0.5);
+  }
+
+  /* Centered Overlay Screens */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(circle at center, rgba(8, 12, 28, 0.75) 0%, rgba(3, 4, 10, 0.92) 80%);
+    backdrop-filter: blur(10px);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 20px;
+    z-index: 20;
+    cursor: auto;
+  }
+
+  .overlay.hidden { display: none; }
+
+  .panel {
+    background: rgba(14, 20, 42, 0.6);
+    border: 1px solid rgba(0, 240, 255, 0.3);
+    box-shadow: 0 0 50px rgba(0, 240, 255, 0.15);
+    border-radius: 20px;
+    padding: clamp(24px, 5vw, 40px) clamp(20px, 5vw, 50px);
+    max-width: 520px;
+  }
+
+  .panel h1 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(26px, 6vw, 42px);
+    font-weight: 900;
+    margin: 0 0 12px 0;
+    background: linear-gradient(90deg, #00f0ff, #ff007f, #ffd700);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    letter-spacing: 3px;
+  }
+
+  .panel p {
+    font-size: clamp(13px, 2.4vw, 15px);
+    color: #90a5cd;
+    line-height: 1.6;
+    margin: 8px 0;
+  }
+
+  .panel .btn {
+    margin-top: 24px;
+    padding: 14px 36px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #04060e;
+    background: linear-gradient(135deg, #00f0ff, #00aaff);
+    border: none;
+    border-radius: 30px;
+    cursor: pointer;
+    box-shadow: 0 0 25px rgba(0, 240, 255, 0.6);
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+
+  .panel .btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 35px rgba(0, 240, 255, 0.9);
+  }
+
+  .panel .btn:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 3px;
+  }
+
+  #hint {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: clamp(10px, 2vw, 13px);
+    color: rgba(255, 255, 255, 0.45);
+    pointer-events: none;
+    z-index: 10;
+    letter-spacing: 1px;
+    text-align: center;
+    max-width: 60vw;
+  }
+
+  #boot-error {
+    position: fixed;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 30px;
+    background: #04060e;
+    z-index: 40;
+    font-family: 'Inter', sans-serif;
+  }
+  #boot-error h2 { font-family: 'Orbitron', sans-serif; color: #ff007f; }
+  #boot-error p { color: #90a5cd; max-width: 460px; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div class="hud-group">
+    <span class="hud-label">SCORE</span>
+    <span class="hud-value" id="score-val">000000</span>
+  </div>
+  <div class="hud-group">
+    <span class="hud-label">RECORDE</span>
+    <span class="hud-value record" id="record-val">000000</span>
+  </div>
+  <div class="hud-group">
+    <span class="hud-label">STAGE</span>
+    <span class="hud-value" id="stage-val">01</span>
+  </div>
+  <div class="hud-group">
+    <span class="hud-label">SHIPS</span>
+    <div id="lives-hud"></div>
+  </div>
+</div>
+
+<div id="mode-switch-btn">
+  <a href="index.html">&larr; NEON 2D</a> <a href="arkanoid_classic.html">RÉPLICA</a>
+</div>
+
+<div id="hint">MOUSE / TOQUE = mover a raquete &nbsp;•&nbsp; CLIQUE ou ESPAÇO = lançar bola &nbsp;•&nbsp; P = pausar</div>
+
+<div id="overlay" class="overlay">
+  <div class="panel">
+    <h1 id="overlay-title">BREAKOUT 3D</h1>
+    <p id="overlay-desc">Física com eixo travado em 2.5D, passo fixo determinístico, renderização volumétrica Three.js, pós-processamento Bloom e estilhaços 3D.</p>
+    <button id="overlay-btn" class="btn">JOGAR AGORA</button>
+  </div>
+</div>
+
+<div id="boot-error">
+  <h2>FALHA AO CARREGAR</h2>
+  <p>Não foi possível carregar as bibliotecas Three.js pela CDN. Verifique sua conexão com a internet e recarregue a página.</p>
+</div>
+
+<script src="arkanoid_bricks.js"></script>
+<script src="arkanoid_levels_arcade.js"></script>
+<script src="arkanoid_arcade.js"></script>
+<!-- Three.js and Post-Processing Libraries -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+
+<script>
+/**
+ * BREAKOUT 3D - CYBERPUNK ENGINE
+ *
+ * A volumetric interpretation running the arcade's own rules (arkanoid_arcade.js, read
+ * from the Taito ROM): the ROM's 32 ball directions and discrete speed levels, speed-ups
+ * by hit count and on touching the ceiling, the Vaus' six zones, capsules only from the
+ * bricks the round data flags, and the arcade's scoring and extra lives. Physics stays on
+ * the Z = 0 plane on a deterministic fixed timestep; Three.js adds bloom and 3D debris.
+ * Enemies and DOH are this version's own take on the arcade's.
+ */
+(function () {
+  "use strict";
+
+  // Fail loudly (and legibly) if a dependency did not arrive. The level table is a
+  // local file but it is just as fatal as the CDN when it is missing.
+  if (typeof THREE === 'undefined' || !THREE.EffectComposer || !THREE.UnrealBloomPass ||
+      typeof arkanoidRoundLayout === 'undefined' || typeof ARKANOID_BRICK_RGB === 'undefined' ||
+      typeof arkVelocity === 'undefined') {
+    document.getElementById('boot-error').style.display = 'flex';
+    document.getElementById('overlay').classList.add('hidden');
+    return;
+  }
+
+  // --- Sound Synthesizer ---
+  class SoundFX {
+    constructor() { this.ctx = null; }
+    init() {
+      if (!this.ctx) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) this.ctx = new AudioCtx();
+      }
+      if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+    }
+    sweep(type, from, to, dur, vol, at) {
+      if (!this.ctx) return;
+      try {
+        const t = this.ctx.currentTime + (at || 0);
+        const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(from, t);
+        if (to !== from) osc.frequency.exponentialRampToValueAtTime(to, t + dur);
+        gain.gain.setValueAtTime(vol, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(t);
+        osc.stop(t + dur);
+      } catch (e) { /* audio unavailable */ }
+    }
+    paddleHit() { this.sweep('sine', 350, 600, 0.08, 0.2); }
+    wallHit() { this.sweep('square', 220, 220, 0.05, 0.1); }
+    brickShatter() { this.sweep('triangle', 520, 520, 0.08, 0.2); }
+    silverHit() { this.sweep('sine', 850, 850, 0.06, 0.22); }
+    goldHit() { this.sweep('sine', 1400, 1400, 0.05, 0.22); }
+    lifeLost() { this.sweep('sawtooth', 150, 150, 0.4, 0.25); }
+    stageClear() { [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => this.sweep('sine', f, f, 0.15, 0.2, i * 0.08)); }
+  }
+
+  // --- Arena Dimensions (all bricks/paddle/ball live on the Z = 0 plane) ---
+  const WALL_LEFT = -15;
+  const WALL_RIGHT = 15;
+  const WALL_TOP = 20;
+  const KILL_Y = -20;
+  const ARENA_CENTER_Y = (WALL_TOP + KILL_Y) / 2;
+  const CAMERA_MARGIN = 2.5;
+
+  const PADDLE_Y = -15.5;
+  const PADDLE_WIDTH = 6.0;
+  const PADDLE_HEIGHT = 1.0;
+  const PADDLE_DEPTH = 1.2;
+
+  const BALL_RADIUS = 0.55;
+  // One arcade pixel in world units: the 208 px arcade playfield spans the arena.
+  const SCALE = (WALL_RIGHT - WALL_LEFT) / 208;
+  const ARCADE_SPEED = SCALE * ARK_FPS;   // arcade px/frame -> world units/second
+
+  // Brick grid. The arcade playfield is 13 columns, and a brick cell is 16 x 8 px with
+  // the brick filling 15 x 7 of it. Everything below is derived from those ratios so the
+  // formation spans the arena exactly and keeps the 2:1 aspect.
+  const BRICK_COLS = 13;
+  const CELL_W = (WALL_RIGHT - WALL_LEFT) / BRICK_COLS;  // 16px cell
+  const CELL_H = CELL_W / 2;                             // 8px cell
+  const BRICK_W = CELL_W * 15 / 16;
+  const BRICK_H = CELL_H * 7 / 8;
+  const BRICK_D = 1.2;
+  const GRID_START_X = WALL_LEFT + CELL_W / 2;
+  const GRID_TOP_Y = 17.5;
+
+  // Deterministic physics: small fixed step removes tunnelling at any speed/framerate.
+  const FIXED_STEP = 1 / 120;
+  const MAX_STEPS_PER_FRAME = 10;
+
+  const HIGHSCORE_KEY = 'breakout3d.highscore';
+
+  // --- Engine State ---
+  let scene, camera, renderer, composer, bloomPass, ballLight;
+  const audio = new SoundFX();
+  const clock = new THREE.Clock();
+
+  let paddleMesh;
+  let balls = [];                 // { mesh, d, glued, stickDX, hold }
+  let capsules = [];
+  let lasers = [];
+  let activeCapsule = null;       // persistent Vaus mode: C, E or L
+  let lastCapsule = null;         // the last capsule caught (never dropped twice running)
+  let pGiven = false;             // a P capsule already dropped this life
+  let multiball = false;          // Disruption: no capsules until one ball is left
+  let portalOpen = false;
+  let paddleWidth = PADDLE_WIDTH;
+  let bricks = [];
+  let debrisList = [];
+  let speedLevel = 6;             // the arcade's shared ball speed level (0xc462)
+  let hitCounter = 0;             // hits since the last speed-up (0xef63)
+  let extraLives = 0;             // extra lives already awarded for score
+
+  let enemies = [];
+  let bossDoh = null;
+  const ENEMY_GEOMETRY = new THREE.DodecahedronGeometry(0.8);
+  const ENEMY_MATERIAL = new THREE.MeshPhysicalMaterial({ color: 0xffaa00, emissive: 0x884400, roughness: 0.2 });
+
+  const DOH_GEOMETRY = new THREE.BoxGeometry(6, 8, 2);
+  const DOH_MATERIAL = new THREE.MeshPhysicalMaterial({ color: 0x667788, emissive: 0x222222, roughness: 0.8 });
+  const DOH_STAGE = 33;
+  const DOH_MAX_HP = 16;
+  // Physics runs at 120 Hz, so an uncooled hit test drained all 16 HP in 0.13 s.
+  const DOH_HIT_COOLDOWN = 0.35;
+  const DOH_POINTS = 10000;
+
+  let gameState = 'start'; // start | playing | paused | lifelost | stageclear | gameover
+  let overlayAction = null; // what the overlay button should do right now
+  let score = 0, stage = 1, lives = 3, highScore = 0;
+
+  let accumulator = 0;
+
+  // Paddle target is persistent state so mouse, touch and keyboard can all drive it.
+  let paddleTargetX = 0;
+  let keys = {};
+
+  // Shared resources, created once: bricks, debris and balls reuse them.
+  const debrisGeometry = new THREE.BoxGeometry(0.35, 0.35, 0.35);
+  const debrisMaterials = new Map();
+  const brickGeometry = new THREE.BoxGeometry(BRICK_W, BRICK_H, BRICK_D);
+  const brickMaterials = new Map();
+
+  // Pointer → world helpers
+  const raycaster = new THREE.Raycaster();
+  const pointerPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+  const ndc = new THREE.Vector2();
+  const hitPoint = new THREE.Vector3();
+
+  // DOM
+  const scoreEl = document.getElementById('score-val');
+  const recordEl = document.getElementById('record-val');
+  const stageEl = document.getElementById('stage-val');
+  const livesHud = document.getElementById('lives-hud');
+  const overlay = document.getElementById('overlay');
+  const overlayTitle = document.getElementById('overlay-title');
+  const overlayDesc = document.getElementById('overlay-desc');
+  const overlayBtn = document.getElementById('overlay-btn');
+
+  function init() {
+    highScore = loadHighScore();
+
+    scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x04060e, 0.008);
+
+    camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 300);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.domElement.id = 'game-canvas-host';
+    document.body.appendChild(renderer.domElement);
+
+    const renderScene = new THREE.RenderPass(scene, camera);
+    bloomPass = new THREE.UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      1.1, 0.4, 0.3
+    );
+    composer = new THREE.EffectComposer(renderer);
+    composer.addPass(renderScene);
+    composer.addPass(bloomPass);
+
+    setupLights();
+    setupArenaEnvironment();
+    setupPaddle();
+
+    fitCameraToArena();
+    updateHUD();
+    loadLevel(stage);
+    startLife();
+    setupEventListeners();
+
+    showOverlay(
+      'BREAKOUT 3D',
+      'Física com eixo travado em 2.5D e as regras do arcade: 32 direções, velocidade que sobe com os toques e no teto, 6 zonas no Vaus. Os dourados são indestrutíveis.',
+      'JOGAR AGORA',
+      startNewGame
+    );
+  }
+
+  // Frames the whole arena regardless of window aspect ratio (portrait phones included).
+  function fitCameraToArena() {
+    const halfFov = THREE.MathUtils.degToRad(camera.fov) / 2;
+    const halfHeight = (WALL_TOP - KILL_Y) / 2 + CAMERA_MARGIN;
+    const halfWidth = (WALL_RIGHT - WALL_LEFT) / 2 + CAMERA_MARGIN;
+
+    const distForHeight = halfHeight / Math.tan(halfFov);
+    const distForWidth = halfWidth / (Math.tan(halfFov) * camera.aspect);
+    const dist = Math.max(distForHeight, distForWidth);
+
+    // Slight downward offset gives the scene depth without pushing the paddle off-screen,
+    // because the extra coverage is already paid for by CAMERA_MARGIN.
+    camera.position.set(0, ARENA_CENTER_Y - 3.5, dist);
+    camera.lookAt(0, ARENA_CENTER_Y + 0.5, 0);
+    camera.updateProjectionMatrix();
+  }
+
+  function setupLights() {
+    scene.add(new THREE.AmbientLight(0x223355, 0.8));
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(14, 28, 26);
+    dirLight.target.position.set(0, ARENA_CENTER_Y, 0);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(1024, 1024);
+    // Default ortho frustum is ±5 units — far too small for a 30 x 40 arena.
+    const shadowCam = dirLight.shadow.camera;
+    shadowCam.left = -26; shadowCam.right = 26;
+    shadowCam.top = 34; shadowCam.bottom = -34;
+    shadowCam.near = 1; shadowCam.far = 90;
+    shadowCam.updateProjectionMatrix();
+    scene.add(dirLight);
+    scene.add(dirLight.target);
+
+    const rimLight1 = new THREE.PointLight(0x00f0ff, 1.5, 70);
+    rimLight1.position.set(-20, 16, 12);
+    scene.add(rimLight1);
+
+    const rimLight2 = new THREE.PointLight(0xff007f, 1.2, 70);
+    rimLight2.position.set(20, -12, 12);
+    scene.add(rimLight2);
+
+    // One glow light that follows the lead ball. A light per ball changed the number of
+    // lights with Disruption, and Three.js recompiles every lit shader when that happens.
+    ballLight = new THREE.PointLight(0x00ffff, 1.8, 12);
+    scene.add(ballLight);
+  }
+
+  function setupArenaEnvironment() {
+    const grid = new THREE.GridHelper(70, 35, 0x00f0ff, 0x112244);
+    grid.rotation.x = Math.PI / 2;
+    grid.position.set(0, ARENA_CENTER_Y, -3);
+    grid.material.opacity = 0.35;
+    grid.material.transparent = true;
+    scene.add(grid);
+
+    const boxGeo = new THREE.BoxGeometry(WALL_RIGHT - WALL_LEFT, WALL_TOP - KILL_Y, 2);
+    const edges = new THREE.EdgesGeometry(boxGeo);
+    const frame = new THREE.LineSegments(
+      edges,
+      new THREE.LineBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.5 })
+    );
+    frame.position.set(0, ARENA_CENTER_Y, 0);
+    scene.add(frame);
+    boxGeo.dispose();
+
+    // A dim red line marks the kill plane so losing the ball reads clearly.
+    const killGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(WALL_LEFT, KILL_Y, 0),
+      new THREE.Vector3(WALL_RIGHT, KILL_Y, 0)
+    ]);
+    const killLine = new THREE.Line(
+      killGeo,
+      new THREE.LineBasicMaterial({ color: 0xff0044, transparent: true, opacity: 0.55 })
+    );
+    scene.add(killLine);
+  }
+
+  function setupPaddle() {
+    const geo = new THREE.BoxGeometry(PADDLE_WIDTH, PADDLE_HEIGHT, PADDLE_DEPTH);
+    const mat = new THREE.MeshPhysicalMaterial({
+      color: 0x00f0ff, emissive: 0x005588, emissiveIntensity: 0.6,
+      roughness: 0.2, metalness: 0.8, clearcoat: 1.0
+    });
+    paddleMesh = new THREE.Mesh(geo, mat);
+    paddleMesh.position.set(0, PADDLE_Y, 0);
+    paddleMesh.castShadow = true;
+    paddleMesh.receiveShadow = true;
+    scene.add(paddleMesh);
+  }
+
+  // Geometry and material are shared by every ball, so the Disruption capsule costs
+  // nothing but three transforms.
+  const ballGeometry = new THREE.SphereGeometry(BALL_RADIUS, 32, 32);
+  const ballMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff, emissive: 0x00ffff, emissiveIntensity: 1.0,
+    roughness: 0.1, metalness: 0.1
+  });
+
+  // A ball carries the arcade's direction index d (0-31, clockwise from straight up);
+  // its velocity comes from d and the shared speed level.
+  function spawnBall(x, y, d, glued) {
+    const mesh = new THREE.Mesh(ballGeometry, ballMaterial);
+    mesh.castShadow = true;
+    mesh.position.set(x, y, 0);
+    scene.add(mesh);
+    const b = { mesh, d, glued: !!glued, stickDX: 0, hold: 0 };
+    balls.push(b);
+    return b;
+  }
+
+  function clearBalls() {
+    balls.forEach(b => scene.remove(b.mesh));   // geometry/material are shared
+    balls = [];
+  }
+
+  function resetBallOnPaddle() {
+    clearBalls();
+    // The arcade starts the ball just right of the Vaus centre: direction 2, and it
+    // leaves by itself after the Catch timer (2 seconds) if not launched.
+    const b = spawnBall(paddleMesh.position.x + 0.7, ballRestY(), 2, true);
+    b.stickDX = 0.7;
+    b.hold = ARK_VAUS.catchTimer / ARK_FPS;
+  }
+
+  function ballRestY() {
+    return PADDLE_Y + PADDLE_HEIGHT / 2 + BALL_RADIUS + 0.05;
+  }
+
+  /** World-space velocity for a direction at the current speed level (y is up). */
+  function ballVelocity(b) {
+    const v = arkVelocity(b.d, speedLevel);
+    return { vx: v.vx * ARCADE_SPEED, vy: -v.vy * ARCADE_SPEED };
+  }
+
+  const movingUp = b => (b.d & 0x18) === 0 || (b.d & 0x18) === 0x18;
+  const movingLeft = b => (b.d & 0x10) !== 0;
+  function countHit() { hitCounter = (hitCounter + 1) & 0xff; }
+
+  // --- Resource disposal (Three.js does not free GPU memory on scene.remove) ---
+  function getDebrisMaterial(color) {
+    if (!debrisMaterials.has(color)) {
+      debrisMaterials.set(color, new THREE.MeshPhysicalMaterial({
+        color, emissive: color, emissiveIntensity: 0.6, roughness: 0.3
+      }));
+    }
+    return debrisMaterials.get(color);
+  }
+
+  // --- Arcade Texture Generator ---
+  //
+  // Measured from MAME frames of the original a75 ROM set: an arcade brick cell is
+  // 16 x 8 px and the coloured bricks (1-8) are a FLAT 15 x 7 rectangle of solid
+  // colour — no bevel, no highlight, no shadow. Silver (9) and gold (10) are the two
+  // beveled bricks and their bevel is 1 px, not 2. The last column and last row of the
+  // cell are the black gap between bricks.
+  //
+  // The 3D mesh already supplies real shading, so the texture must stay flat; adding a
+  // painted bevel on top of lit geometry is what made the old build read as "not
+  // Arkanoid". Only the black gap is dropped here — the mesh has real edges instead.
+  const arcadeTextures = {};
+  function getBrickTexture(typeCode) {
+    if (arcadeTextures[typeCode]) return arcadeTextures[typeCode];
+
+    const cvs = document.createElement('canvas');
+    cvs.width = 15; cvs.height = 7;
+    const ctx = cvs.getContext('2d');
+
+    const bevel = ARKANOID_BRICK_BEVEL[typeCode];
+    if (bevel) {
+      ctx.fillStyle = bevel.hi;   ctx.fillRect(0, 0, 15, 7);
+      ctx.fillStyle = bevel.body; ctx.fillRect(1, 1, 13, 5);
+      ctx.fillStyle = bevel.lo;
+      ctx.fillRect(0, 6, 15, 1);
+      ctx.fillRect(14, 0, 1, 7);
+    } else {
+      ctx.fillStyle = ARKANOID_BRICK_RGB[typeCode] || '#ffffff';
+      ctx.fillRect(0, 0, 15, 7);
+    }
+
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    arcadeTextures[typeCode] = tex;
+    return tex;
+  }
+
+  /** One material per brick colour (and a brighter one for a dented silver brick). */
+  function getBrickMaterial(typeCode, dented) {
+    const key = typeCode * 2 + (dented ? 1 : 0);
+    if (!brickMaterials.has(key)) {
+      const tex = getBrickTexture(typeCode);
+      brickMaterials.set(key, new THREE.MeshPhysicalMaterial({
+        map: tex,
+        // emissiveMap is modulated by `emissive`, which defaults to black — without
+        // setting it the map contributed nothing and the bricks never reached bloom.
+        emissive: new THREE.Color(ARKANOID_BRICK_RGB[typeCode] || '#ffffff'),
+        emissiveMap: tex,
+        emissiveIntensity: dented ? 0.9 : 0.35,
+        roughness: 0.5,
+        metalness: typeCode >= 9 ? 0.8 : 0.1
+      }));
+    }
+    return brickMaterials.get(key);
+  }
+
+  // --- 3D Level Generator ---
+  function loadLevel(lvl) {
+    bricks.forEach(b => scene.remove(b.mesh));     // geometry and materials are shared
+    bricks = [];
+
+    clearDebris();
+    enemies.forEach(e => scene.remove(e.mesh));
+    enemies = [];
+    if (bossDoh) { scene.remove(bossDoh.mesh); bossDoh = null; }
+
+    // Round 33 is the DOH fight and has no bricks at all.
+    if (lvl === DOH_STAGE) {
+      bossDoh = {
+        mesh: new THREE.Mesh(DOH_GEOMETRY, DOH_MATERIAL),
+        hp: DOH_MAX_HP,
+        vx: 8,
+        hitCooldown: 0
+      };
+      bossDoh.mesh.position.set(0, GRID_TOP_Y - 5, 0);
+      scene.add(bossDoh.mesh);
+      return;
+    }
+
+    // Arcade table, trimmed of its leading empty rows since the 3D arena places the
+    // formation itself rather than reproducing absolute arcade screen rows.
+    const layout = arkanoidRoundLayout(lvl);
+    const info = arkanoidRoundInfo(lvl);
+
+    for (let r = 0; r < layout.bricks.length; r++) {
+      for (let c = 0; c < layout.bricks[r].length; c++) {
+        const typeCode = layout.bricks[r][c];
+        if (typeCode === 0) continue;
+
+        const isGold = (typeCode === 10);
+        const isSilver = (typeCode === 9);
+
+        // 13 columns spanning the arena exactly, on the arcade's 16 x 8 cell pitch.
+        const mesh = new THREE.Mesh(brickGeometry, getBrickMaterial(typeCode, false));
+        mesh.position.set(GRID_START_X + c * CELL_W, GRID_TOP_Y - r * CELL_H, 0);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+
+        const hp = isGold ? Infinity : (isSilver ? info.silverHits : 1);
+        bricks.push({
+          mesh, w: BRICK_W, h: BRICK_H,
+          hp, maxHp: hp, typeCode,
+          isSilver, isGold,
+          color: ARKANOID_BRICK_RGB[typeCode] || '#ffffff',   // used by the debris effect
+          capsule: !!layout.capsules[r][c],
+          // Arcade scoring is by colour, not by row. Silver is 50 x round; gold is 0.
+          pts: isGold ? 0 : isSilver ? arkSilverPoints(((lvl - 1) % 32) + 1) : ARK_BRICK_POINTS[typeCode - 1]
+        });
+      }
+    }
+  }
+
+  // --- Input ---
+  function setupEventListeners() {
+    window.addEventListener('resize', onResize);
+
+    // Pointer events cover mouse, pen and touch with one code path.
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    window.addEventListener('pointerdown', onPointerDown, { passive: false });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.repeat) return;              // key auto-repeat used to spam pause/launch
+      keys[e.code] = true;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        audio.init();
+        // With an overlay up, SPACE confirms it; otherwise it launches the ball.
+        if (overlayAction) overlayAction();
+        else primaryAction();
+      }
+      if (e.code === 'KeyP') togglePause();
+    });
+    window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+    // A key held while the window loses focus never gets its keyup.
+    window.addEventListener('blur', () => { keys = {}; });
+
+    // Overlay button owns its own action; it must NOT also reach the canvas handler.
+    overlayBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      audio.init();
+      if (overlayAction) overlayAction();
+    });
+
+    // Auto-pause when the tab loses focus.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && gameState === 'playing') togglePause();
+    });
+  }
+
+  function onPointerMove(e) {
+    const worldX = pointerToWorldX(e.clientX, e.clientY);
+    if (worldX !== null) paddleTargetX = worldX;
+  }
+
+  function onPointerDown(e) {
+    // Clicks on UI (overlay, links) are handled by those elements only.
+    if (e.target !== renderer.domElement) return;
+    e.preventDefault();
+    audio.init();
+    const worldX = pointerToWorldX(e.clientX, e.clientY);
+    if (worldX !== null) paddleTargetX = worldX;
+    primaryAction();
+  }
+
+  // Unprojects the pointer onto the Z = 0 plane so the paddle sits exactly under it.
+  function pointerToWorldX(clientX, clientY) {
+    ndc.set((clientX / window.innerWidth) * 2 - 1, -(clientY / window.innerHeight) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera);
+    const hit = raycaster.ray.intersectPlane(pointerPlane, hitPoint);
+    return hit ? hit.x : null;
+  }
+
+  // Only ever launches the ball; starting/continuing is the overlay button's job.
+  function primaryAction() {
+    if (gameState !== 'playing') return;
+    // SPACE / click releases any held ball; with lasers and nothing held, it fires.
+    if (!launchBall()) fireLasers();
+  }
+
+  function launchBall() {
+    let launched = false;
+    for (const b of balls) {
+      if (!b.glued) continue;
+      b.glued = false;
+      b.hold = 0;
+      launched = true;
+    }
+    return launched;
+  }
+
+  // --- Fixed-step physics ---
+  function stepPhysics(dt) {
+    updatePaddle(dt);
+
+    // The Break capsule opens a gate on the right wall; the Vaus escapes through it for
+    // 10,000 points, which is what clears the round.
+    if (portalOpen && paddleMesh.position.x + paddleWidth / 2 >= WALL_RIGHT - 0.2) {
+      addScore(ARK_POINTS.escape);
+      handleStageClear();
+      return;
+    }
+
+    updateSpeed();
+    updateCapsules(dt);
+    updateLasers(dt);
+    updateEnemies(dt);
+    updateBoss(dt);
+
+    for (let i = balls.length - 1; i >= 0; i--) {
+      const b = balls[i];
+      if (b.glued) {
+        b.mesh.position.set(paddleMesh.position.x + b.stickDX, ballRestY(), 0);
+        if ((b.hold -= dt) <= 0) { b.glued = false; b.hold = 0; }
+        continue;
+      }
+      stepBall(b, dt);
+      if (gameState !== 'playing') return;
+      if (b.mesh.position.y < KILL_Y) {
+        scene.remove(b.mesh);
+        balls.splice(i, 1);
+      }
+    }
+
+    if (multiball && balls.length <= 1) multiball = false;
+    if (balls.length === 0) {
+      handleLifeLost();
+      return;                       // stop this step; state is no longer 'playing'
+    }
+
+    // On the DOH stage there are no bricks by design, so an empty brick list is the
+    // normal state rather than a win — the boss owns the stage-clear there.
+    if (stage !== DOH_STAGE && countRemainingBricks() === 0) handleStageClear();
+  }
+
+  /** 0x0900: enough hits and, the next time the ball heads up, the speed level rises. */
+  function updateSpeed() {
+    const b = balls.find(x => !x.glued);
+    if (!b || hitCounter < ARK_SPEEDUP_HITS[speedLevel] || !movingUp(b)) return;
+    hitCounter = 0;
+    if (speedLevel < ARK_SPEED_MAX) speedLevel++;
+    b.d = arkSpeedupNudge(b.d);
+  }
+
+  function stepBall(b, dt) {
+    const { vx, vy } = ballVelocity(b);
+    let nextX = b.mesh.position.x + vx * dt;
+    let nextY = b.mesh.position.y + vy * dt;
+
+    // Walls and ceiling (0x141B): each bounce also counts toward the next speed-up.
+    if (nextX - BALL_RADIUS < WALL_LEFT) {
+      nextX = WALL_LEFT + BALL_RADIUS;
+      if (movingLeft(b)) { b.d = arkBounceLeft(b.d); countHit(); audio.wallHit(); }
+    } else if (nextX + BALL_RADIUS > WALL_RIGHT) {
+      nextX = WALL_RIGHT - BALL_RADIUS;
+      if (!movingLeft(b)) { b.d = arkBounceRight(b.d); countHit(); audio.wallHit(); }
+    }
+
+    if (nextY + BALL_RADIUS > WALL_TOP) {
+      nextY = WALL_TOP - BALL_RADIUS;
+      // Touching the ceiling raises the speed to the round's minimum.
+      const floor = ARK_CEILING_SPEED[(stage - 1) % 34] || 0;
+      if (speedLevel < floor) speedLevel = floor;
+      if (movingUp(b)) { b.d = arkBounceCeiling(b.d); countHit(); audio.wallHit(); }
+    }
+
+    const prevY = b.mesh.position.y;
+    b.mesh.position.set(nextX, nextY, 0);
+
+    handlePaddleDeflection(b, prevY);
+    handleBrickCollision(b);
+    collideEnemies(b);
+    collideBoss(b);
+  }
+
+  function updatePaddle(dt) {
+    const kbSpeed = 30 * dt;
+    // Keyboard mutates the persistent target, so it is no longer overwritten by
+    // the mouse position on the very next frame.
+    if (keys['KeyA'] || keys['ArrowLeft']) paddleTargetX -= kbSpeed;
+    if (keys['KeyD'] || keys['ArrowRight']) paddleTargetX += kbSpeed;
+
+    const minX = WALL_LEFT + paddleWidth / 2;
+    const maxX = WALL_RIGHT - paddleWidth / 2;
+    paddleTargetX = Math.max(minX, Math.min(maxX, paddleTargetX));
+    paddleMesh.position.set(paddleTargetX, PADDLE_Y, 0);
+  }
+
+  /** 0x1318: six zones, three angles per side; the Catch holds the ball for 2 s. */
+  function handlePaddleDeflection(b, prevY) {
+    if (movingUp(b)) return;
+
+    const paddleTop = PADDLE_Y + PADDLE_HEIGHT / 2;
+    const crossed = (prevY - BALL_RADIUS) > paddleTop && (b.mesh.position.y - BALL_RADIUS) <= paddleTop;
+    const overlapping = b.mesh.position.y - BALL_RADIUS <= paddleTop &&
+                        b.mesh.position.y + BALL_RADIUS >= PADDLE_Y - PADDLE_HEIGHT / 2;
+    if (!crossed && !overlapping) return;
+
+    const left = paddleMesh.position.x - paddleWidth / 2;
+    if (b.mesh.position.x < left - BALL_RADIUS || b.mesh.position.x > left + paddleWidth + BALL_RADIUS) return;
+
+    const p = Math.max(0, Math.min(1, (b.mesh.position.x - left) / paddleWidth));
+    b.d = arkVausZoneAt(p, activeCapsule === 'E' ? 48 : 32).d;
+    b.mesh.position.y = ballRestY();
+    audio.paddleHit();
+
+    if (activeCapsule === 'C') {
+      b.glued = true;
+      b.stickDX = b.mesh.position.x - paddleMesh.position.x;
+      b.hold = ARK_VAUS.catchTimer / ARK_FPS;
+      return;
+    }
+    spawnDebrisEffect(b.mesh.position, 0x00f0ff, 4);
+  }
+
+  /** Reflect off the face the ball crossed, but only if it is heading into it. */
+  function handleBrickCollision(ball) {
+    for (let i = 0; i < bricks.length; i++) {
+      const b = bricks[i];
+      if (b.hp <= 0) continue;
+
+      const bx = b.mesh.position.x;
+      const by = b.mesh.position.y;
+      const halfW = b.w / 2;
+      const halfH = b.h / 2;
+
+      const closestX = Math.max(bx - halfW, Math.min(ball.mesh.position.x, bx + halfW));
+      const closestY = Math.max(by - halfH, Math.min(ball.mesh.position.y, by + halfH));
+
+      const dx = ball.mesh.position.x - closestX;
+      const dy = ball.mesh.position.y - closestY;
+      if (dx * dx + dy * dy > BALL_RADIUS * BALL_RADIUS) continue;
+
+      const overlapX = (halfW + BALL_RADIUS) - Math.abs(ball.mesh.position.x - bx);
+      const overlapY = (halfH + BALL_RADIUS) - Math.abs(ball.mesh.position.y - by);
+
+      if (overlapX < overlapY) {
+        const fromLeft = ball.mesh.position.x < bx;
+        if (fromLeft !== movingLeft(ball)) ball.d = arkReflectColumn(ball.d);
+        ball.mesh.position.x += fromLeft ? -overlapX : overlapX;
+      } else {
+        const fromBelow = ball.mesh.position.y < by;          // y is up in the 3D arena
+        if (fromBelow === movingUp(ball)) ball.d = arkReflectRow(ball.d);
+        ball.mesh.position.y += fromBelow ? -overlapY : overlapY;
+      }
+
+      damageBrick(i);
+      return;                       // one brick per step keeps the response stable
+    }
+  }
+
+  /** One hit on a brick, from the ball or a laser (0x5854). */
+  function damageBrick(i) {
+    const b = bricks[i];
+    countHit();
+    if (b.isGold) {
+      audio.goldHit();
+      spawnDebrisEffect(b.mesh.position, 0xffd700, 5);
+      return;
+    }
+    b.hp--;
+    if (b.hp <= 0) {
+      // The capsule type is rolled before the brick's own points are added.
+      if (b.capsule) maybeDropCapsule(b.mesh.position.clone());
+      addScore(b.pts);
+      audio.brickShatter();
+      spawnDebrisEffect(b.mesh.position, b.color, 14);
+      scene.remove(b.mesh);         // geometry and material are shared
+      bricks.splice(i, 1);          // dead bricks no longer linger in the scan loop
+    } else {
+      audio.silverHit();
+      b.mesh.material = getBrickMaterial(b.typeCode, true);
+    }
+  }
+
+  // --- Capsules ---
+  const CAPSULE_FALL_SPEED = ARCADE_SPEED;   // one arcade pixel per frame
+  const CAPSULE_W = 2.2, CAPSULE_H = 1.0;
+  const LASER_SPEED = 5 * ARCADE_SPEED;      // five arcade pixels per frame
+  const PADDLE_WIDTH_WIDE = PADDLE_WIDTH * 1.5;   // 48 arcade px against 32
+  const capsuleGeometry = new THREE.BoxGeometry(CAPSULE_W, CAPSULE_H, 0.6);
+  const capsuleMaterials = new Map();
+  const laserGeometry = new THREE.BoxGeometry(0.18, 1.2, 0.18);
+  const laserMaterial = new THREE.MeshBasicMaterial({ color: 0xff5100 });
+
+  function capsuleMaterial(letter) {
+    if (!capsuleMaterials.has(letter)) {
+      const c = ARK_CAPSULE_RGB[letter];
+      capsuleMaterials.set(letter, new THREE.MeshPhysicalMaterial({
+        color: c, emissive: c, emissiveIntensity: 0.8, roughness: 0.3
+      }));
+    }
+    return capsuleMaterials.get(letter);
+  }
+
+  /** Only flagged bricks drop capsules; one at a time, none during Disruption. */
+  function maybeDropCapsule(pos) {
+    if (capsules.length > 0 || multiball || portalOpen) return;
+    const letter = arkCapsuleLetter(Math.random, score, lastCapsule, pGiven);
+    if (!letter) return;
+    if (letter === 'P') pGiven = true;
+    const mesh = new THREE.Mesh(capsuleGeometry, capsuleMaterial(letter));
+    mesh.position.copy(pos);
+    scene.add(mesh);
+    capsules.push({ mesh, letter });
+  }
+
+  function updateCapsules(dt) {
+    for (let i = capsules.length - 1; i >= 0; i--) {
+      const c = capsules[i];
+      c.mesh.position.y -= CAPSULE_FALL_SPEED * dt;
+      c.mesh.rotation.y += 3 * dt;
+
+      const caught = Math.abs(c.mesh.position.x - paddleMesh.position.x) <
+                       paddleWidth / 2 + CAPSULE_W / 2 &&
+                     Math.abs(c.mesh.position.y - PADDLE_Y) < (PADDLE_HEIGHT + CAPSULE_H) / 2;
+      if (caught) {
+        applyCapsule(c.letter);
+        scene.remove(c.mesh);
+        capsules.splice(i, 1);
+      } else if (c.mesh.position.y < KILL_Y) {
+        scene.remove(c.mesh);
+        capsules.splice(i, 1);
+      }
+    }
+  }
+
+  /**
+   * 0x5386: every capsule is worth 1,000, releases a held ball and ends the current
+   * Vaus mode before applying its own effect (0x5474).
+   */
+  function applyCapsule(letter) {
+    addScore(ARK_POINTS.capsule);
+    lastCapsule = letter;
+    launchBall();
+    if (activeCapsule === 'L' && letter !== 'L') clearLasers();
+    activeCapsule = ['C', 'E', 'L'].includes(letter) ? letter : null;
+    paddleWidth = activeCapsule === 'E' ? PADDLE_WIDTH_WIDE : PADDLE_WIDTH;
+    multiball = false;
+
+    switch (letter) {
+      case 'S':                                   // one speed level slower... twice
+        speedLevel = arkSlowLevel(speedLevel);
+        break;
+      case 'D': {                                 // three balls: directions d-1, d, d+1
+        const src = balls[0];
+        if (src) {
+          const dirs = arkDisruptionDirections(src.d);
+          src.d = dirs[0];
+          for (const d of dirs.slice(1)) spawnBall(src.mesh.position.x, src.mesh.position.y, d, false);
+          multiball = true;
+        }
+        break;
+      }
+      case 'B':
+        portalOpen = true;
+        break;
+      case 'P':
+        lives++;
+        break;
+    }
+    setPaddleScale();
+    audio.goldHit();
+    updateHUD();
+  }
+
+  function setPaddleScale() {
+    paddleMesh.scale.x = paddleWidth / PADDLE_WIDTH;
+    paddleMesh.material.emissive.set(activeCapsule === 'L' ? 0x883300 : 0x005588);
+  }
+
+  // --- Lasers ---
+  function fireLasers() {
+    if (activeCapsule !== 'L' || lasers.length >= 4) return;
+    for (const side of [-1, 1]) {
+      const mesh = new THREE.Mesh(laserGeometry, laserMaterial);
+      mesh.position.set(paddleMesh.position.x + side * (paddleWidth / 2 - 0.3),
+                        PADDLE_Y + PADDLE_HEIGHT, 0);
+      scene.add(mesh);
+      lasers.push({ mesh });
+    }
+    audio.silverHit();
+  }
+
+  function updateLasers(dt) {
+    for (let i = lasers.length - 1; i >= 0; i--) {
+      const l = lasers[i];
+      l.mesh.position.y += LASER_SPEED * dt;
+      if (l.mesh.position.y > WALL_TOP) {
+        scene.remove(l.mesh);
+        lasers.splice(i, 1);
+        continue;
+      }
+      for (let j = 0; j < bricks.length; j++) {
+        const b = bricks[j];
+        if (Math.abs(l.mesh.position.x - b.mesh.position.x) < b.w / 2 &&
+            Math.abs(l.mesh.position.y - b.mesh.position.y) < b.h / 2) {
+          scene.remove(l.mesh);
+          lasers.splice(i, 1);
+          damageBrick(j);
+          break;
+        }
+      }
+    }
+  }
+
+  function clearLasers() {
+    lasers.forEach(l => scene.remove(l.mesh));
+    lasers = [];
+  }
+
+  function clearCapsules() {
+    capsules.forEach(c => scene.remove(c.mesh));
+    capsules = [];
+  }
+
+  /** 0x05B5: a new life or round resets the speed and drops every powerup. */
+  function startLife() {
+    clearCapsules();
+    clearLasers();
+    activeCapsule = null;
+    lastCapsule = null;
+    pGiven = false;
+    multiball = false;
+    portalOpen = false;
+    speedLevel = arkanoidRoundInfo(stage).speed;
+    hitCounter = 0;
+    paddleWidth = PADDLE_WIDTH;
+    setPaddleScale();
+    resetBallOnPaddle();
+  }
+
+  function countRemainingBricks() {
+    let alive = 0;
+    for (const b of bricks) if (!b.isGold && b.hp > 0) alive++;
+    return alive;
+  }
+
+  function spawnEnemy() {
+    if (stage === DOH_STAGE) return; // no enemies in the boss stage
+    if (enemies.length > 2) return;  // the arcade has three enemy slots
+    const mesh = new THREE.Mesh(ENEMY_GEOMETRY, ENEMY_MATERIAL);
+    // They come out of the two doors in the top wall.
+    const startX = Math.random() > 0.5 ? 10 : -10;
+    mesh.position.set(startX, WALL_TOP, 0);
+    scene.add(mesh);
+    enemies.push({
+      mesh,
+      vx: (Math.random() - 0.5) * 4,
+      vy: -3 - Math.random() * 2
+    });
+  }
+
+  // Motion and spawning run once per physics step. Ball collision is separate
+  // (collideEnemies) because that part is per-ball and there can be three of them —
+  // running the whole thing per ball would triple the spawn rate.
+  function updateEnemies(dt) {
+    if (Math.random() < 0.005 * dt * 60) spawnEnemy();
+
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const e = enemies[i];
+      e.mesh.position.x += e.vx * dt;
+      e.mesh.position.y += e.vy * dt;
+      e.mesh.rotation.z += 2 * dt;
+
+      // Walls — clamp as well as reflect, otherwise an enemy pushed past the wall
+      // flips its velocity every step and jitters in place.
+      if (e.mesh.position.x < WALL_LEFT) {
+        e.mesh.position.x = WALL_LEFT;
+        e.vx = Math.abs(e.vx);
+      } else if (e.mesh.position.x > WALL_RIGHT) {
+        e.mesh.position.x = WALL_RIGHT;
+        e.vx = -Math.abs(e.vx);
+      }
+
+      // Touching the Vaus destroys an enemy, as on the arcade (0x0ABE).
+      if (Math.abs(e.mesh.position.y - PADDLE_Y) < 1.3 &&
+          Math.abs(e.mesh.position.x - paddleMesh.position.x) < paddleWidth / 2 + 0.8) {
+        killEnemy(i);
+        continue;
+      }
+      if (e.mesh.position.y < KILL_Y) {
+        scene.remove(e.mesh);
+        enemies.splice(i, 1);
+      }
+    }
+  }
+
+  function killEnemy(i) {
+    const e = enemies[i];
+    addScore(ARK_POINTS.enemy);
+    spawnDebrisEffect(e.mesh.position, 0xffaa00, 10);
+    scene.remove(e.mesh);
+    enemies.splice(i, 1);
+  }
+
+  /**
+   * 0x12D1: an enemy hit flips the ball vertically; one hit in the middle band is sent
+   * downward instead. Direction changes, never raw velocity, so the speed stays right.
+   */
+  function collideEnemies(ball) {
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const e = enemies[i];
+      const dx = ball.mesh.position.x - e.mesh.position.x;
+      const dy = ball.mesh.position.y - e.mesh.position.y;
+      if (dx * dx + dy * dy >= (BALL_RADIUS + 0.8) * (BALL_RADIUS + 0.8)) continue;
+      let nd = arkMirror(ball.d);
+      if (Math.abs(dy) < 0.35) nd = (nd & 0x10) ? (nd & ~0x08) : (nd | 0x08);
+      ball.d = nd & 0x1f;
+      killEnemy(i);
+    }
+  }
+
+  // Motion only; damage is per-ball in collideBoss.
+  function updateBoss(dt) {
+    if (!bossDoh) return;
+    bossDoh.mesh.position.x += bossDoh.vx * dt;
+    if (bossDoh.mesh.position.x < -8 || bossDoh.mesh.position.x > 8) bossDoh.vx *= -1;
+    if (bossDoh.hitCooldown > 0) bossDoh.hitCooldown -= dt;
+  }
+
+  function collideBoss(ball) {
+    if (!bossDoh || bossDoh.hitCooldown > 0) return;
+
+    const halfW = 3 + BALL_RADIUS;
+    const halfH = 4 + BALL_RADIUS;
+    const dx = ball.mesh.position.x - bossDoh.mesh.position.x;
+    const dy = ball.mesh.position.y - bossDoh.mesh.position.y;
+    if (Math.abs(dx) >= halfW || Math.abs(dy) >= halfH) return;
+
+    // Deflect off whichever face was actually crossed (by direction, so the ball keeps
+    // its speed), and push the ball clear so it cannot re-enter the box next step.
+    if (halfW - Math.abs(dx) < halfH - Math.abs(dy)) {
+      if ((dx < 0) !== movingLeft(ball)) ball.d = arkReflectColumn(ball.d);
+      ball.mesh.position.x = bossDoh.mesh.position.x + Math.sign(dx || 1) * halfW;
+    } else {
+      if ((dy < 0) === movingUp(ball)) ball.d = arkReflectRow(ball.d);
+      ball.mesh.position.y = bossDoh.mesh.position.y + Math.sign(dy || -1) * halfH;
+    }
+
+    bossDoh.hitCooldown = DOH_HIT_COOLDOWN;
+    bossDoh.hp--;
+    spawnDebrisEffect(bossDoh.mesh.position, 0x667788, 15);
+    audio.silverHit();
+
+    if (bossDoh.hp <= 0) {
+      addScore(DOH_POINTS);
+      scene.remove(bossDoh.mesh);
+      bossDoh = null;
+      handleStageClear();
+    }
+  }
+
+  // --- Debris ---
+  function spawnDebrisEffect(pos, color, count) {
+    const material = getDebrisMaterial(color);
+    for (let i = 0; i < count; i++) {
+      const mesh = new THREE.Mesh(debrisGeometry, material);
+      mesh.position.set(
+        pos.x + (Math.random() - 0.5) * 1.5,
+        pos.y + (Math.random() - 0.5) * 1.0,
+        pos.z
+      );
+      scene.add(mesh);
+      debrisList.push({
+        mesh,
+        vx: (Math.random() - 0.5) * 18,
+        vy: (Math.random() - 0.5) * 18,
+        vz: (Math.random() - 0.2) * 12,
+        rotX: Math.random() * 10,
+        rotY: Math.random() * 10,
+        life: 1.0,
+        decay: 1.8 + Math.random() * 1.5
+      });
+    }
+  }
+
+  function updateDebris(dt) {
+    for (let i = debrisList.length - 1; i >= 0; i--) {
+      const d = debrisList[i];
+      d.mesh.position.x += d.vx * dt;
+      d.mesh.position.y += d.vy * dt;
+      d.mesh.position.z += d.vz * dt;
+      d.vy -= 14 * dt;              // a little gravity so shards arc instead of drifting
+      d.mesh.rotation.x += d.rotX * dt;
+      d.mesh.rotation.y += d.rotY * dt;
+      d.life -= d.decay * dt;
+      d.mesh.scale.setScalar(Math.max(0, d.life));
+      if (d.life <= 0) {
+        scene.remove(d.mesh);       // geometry and material are shared: do not dispose
+        debrisList.splice(i, 1);
+      }
+    }
+  }
+
+  function clearDebris() {
+    debrisList.forEach(d => scene.remove(d.mesh));
+    debrisList = [];
+  }
+
+  // --- Flow & State ---
+  function addScore(v) {
+    score += v;
+    // Extra lives at 20,000, 60,000 and every 60,000 after.
+    while (score >= arkNextExtraLife(extraLives)) {
+      extraLives++;
+      lives++;
+    }
+    if (score > highScore) {
+      highScore = score;
+      saveHighScore(highScore);
+    }
+    updateHUD();
+  }
+
+  function handleStageClear() {
+    audio.stageClear();
+    gameState = 'stageclear';
+    startLife();
+    showOverlay(
+      `ESTÁGIO ${stage} CONCLUÍDO`,
+      `Pontuação: ${score}. O próximo estágio traz um novo traçado.`,
+      'PRÓXIMO ESTÁGIO',
+      nextStage
+    );
+  }
+
+  function handleLifeLost() {
+    lives--;
+    updateHUD();
+    audio.lifeLost();
+    startLife();
+    enemies.forEach(e => scene.remove(e.mesh));
+    enemies = [];
+
+    if (lives <= 0) {
+      gameState = 'gameover';
+      showOverlay('GAME OVER', `Sua pontuação final foi ${score} no Estágio ${stage}. Recorde: ${highScore}.`, 'JOGAR NOVAMENTE', startNewGame);
+    } else {
+      gameState = 'lifelost';
+      showOverlay('BOLA PERDIDA', `Vidas restantes: ${lives}. A bola volta presa à raquete — clique ou aperte ESPAÇO para lançar.`, 'CONTINUAR', resumePlay);
+    }
+  }
+
+  function resumePlay() {
+    gameState = 'playing';
+    hideOverlay();
+  }
+
+  function nextStage() {
+    stage++;
+    updateHUD();
+    loadLevel(stage);
+    startLife();
+    resumePlay();
+  }
+
+  function startNewGame() {
+    score = 0;
+    lives = 3;
+    stage = 1;
+    extraLives = 0;
+    updateHUD();
+    loadLevel(stage);           // also clears debris, enemies and DOH
+    paddleTargetX = 0;
+    paddleMesh.position.set(0, PADDLE_Y, 0);
+    startLife();
+    resumePlay();
+  }
+
+  function togglePause() {
+    if (gameState === 'playing') {
+      gameState = 'paused';
+      showOverlay('PAUSADO', 'O jogo está pausado. Aperte P ou use o botão para voltar.', 'CONTINUAR', resumePlay);
+    } else if (gameState === 'paused') {
+      resumePlay();
+    }
+  }
+
+  function showOverlay(title, desc, btnText, action) {
+    overlayTitle.textContent = title;
+    overlayDesc.textContent = desc;
+    overlayBtn.textContent = btnText;
+    overlayAction = action;
+    overlay.classList.remove('hidden');
+    document.body.classList.remove('playing');
+    overlayBtn.focus({ preventScroll: true });
+  }
+
+  function hideOverlay() {
+    overlay.classList.add('hidden');
+    overlayAction = null;
+    document.body.classList.add('playing');
+    overlayBtn.blur();
+  }
+
+  function updateHUD() {
+    scoreEl.textContent = score.toString().padStart(6, '0');
+    recordEl.textContent = Math.max(score, highScore).toString().padStart(6, '0');
+    stageEl.textContent = stage.toString().padStart(2, '0');
+
+    const spare = Math.max(0, lives - 1);
+    if (livesHud.childElementCount !== spare) {   // avoid rebuilding the DOM every brick
+      livesHud.innerHTML = '';
+      for (let i = 0; i < spare; i++) {
+        const s = document.createElement('div');
+        s.className = 'life-ship';
+        livesHud.appendChild(s);
+      }
+    }
+  }
+
+  function loadHighScore() {
+    try {
+      const v = parseInt(window.localStorage.getItem(HIGHSCORE_KEY), 10);
+      return Number.isFinite(v) ? v : 0;
+    } catch (e) { return 0; }
+  }
+
+  function saveHighScore(v) {
+    try { window.localStorage.setItem(HIGHSCORE_KEY, String(v)); } catch (e) { /* ignore */ }
+  }
+
+  // --- Main Loop ---
+  function animate() {
+    requestAnimationFrame(animate);
+    const frameTime = Math.min(clock.getDelta(), 0.25);
+
+    if (gameState === 'playing') {
+      accumulator += frameTime;
+      let steps = 0;
+      while (accumulator >= FIXED_STEP && steps < MAX_STEPS_PER_FRAME && gameState === 'playing') {
+        stepPhysics(FIXED_STEP);
+        accumulator -= FIXED_STEP;
+        steps++;
+      }
+      if (steps >= MAX_STEPS_PER_FRAME) accumulator = 0; // avoid the spiral of death
+    } else {
+      accumulator = 0;
+    }
+
+    updateDebris(frameTime);
+
+    for (const b of balls) {
+      b.mesh.rotation.x += frameTime * 3;
+      b.mesh.rotation.y += frameTime * 2;
+    }
+    if (balls.length) {
+      ballLight.position.copy(balls[0].mesh.position);
+      ballLight.intensity = 1.8;
+    } else {
+      ballLight.intensity = 0;
+    }
+
+    composer.render();
+  }
+
+  function onResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    fitCameraToArena();
+    const dpr = Math.min(window.devicePixelRatio, 2);
+    renderer.setPixelRatio(dpr);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    // The composer keeps its own pixel ratio (a window moved to another monitor).
+    if (composer.setPixelRatio) composer.setPixelRatio(dpr);
+    composer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  // Read-only view of the game, for the console and automated checks.
+  window.arkanoid3d = {
+    state: () => ({ gameState, score, lives, stage, activeCapsule, speedLevel, hitCounter, multiball,
+                    portalOpen, paddleX: paddleMesh.position.x, paddleWidth,
+                    balls: balls.map(b => ({ x: b.mesh.position.x, y: b.mesh.position.y, d: b.d, glued: b.glued })),
+                    capsules: capsules.map(c => c.letter), bricks: bricks.length, enemies: enemies.length,
+                    doh: bossDoh ? bossDoh.hp : null })
+  };
+
+  // Boot last: init() reaches loadLevel(), which reads const bindings declared further
+  // down this closure, and those are in the temporal dead zone until execution gets here.
+  init();
+  animate();
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arkanoid - Réplica do Arcade</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #000;
+    color: #bbb;
+    font: 13px/1.5 system-ui, sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  #screen {
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background: #000;
+    cursor: none;
+    touch-action: none;
+  }
+  #help {
+    max-width: 90vw;
+    text-align: center;
+    color: #888;
+  }
+  #help kbd {
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 0 4px;
+    color: #ddd;
+  }
+  #help a { color: #8cf; }
+  #rom-note { color: #a98; }
+  #error {
+    display: none;
+    color: #f66;
+    padding: 20px;
+    max-width: 520px;
+    text-align: center;
+  }
+</style>
+<script src="arkanoid_arcade.js"></script>
+<script src="arkanoid_levels_arcade.js"></script>
+<script src="arkanoid_bricks.js"></script>
+<script src="arkanoid_arcade_engine.js"></script>
+<!-- Optional: the real graphics, generated locally from your ROMs by
+     python tools/build_rom_assets.py. Without it the replica draws a reconstruction. -->
+<script src="generated/arkanoid_rom_assets.js" onerror="window.ARKANOID_ROM = null"></script>
+</head>
+<body>
+
+<canvas id="screen" width="224" height="256"></canvas>
+<div id="help">
+  <kbd>mouse</kbd> / <kbd>←</kbd><kbd>→</kbd> movem a Vaus · <kbd>espaço</kbd> / clique lança e atira ·
+  <kbd>P</kbd> pausa · <kbd>M</kbd> som ·
+  <a href="index.html">Neon</a> · <a href="breakout3d.html">3D</a><br>
+  <span id="rom-note"></span>
+</div>
+<div id="error"></div>
+
+<script>
+/**
+ * ARKANOID - arcade replica.
+ *
+ * The game itself is arkanoid_arcade_engine.js, a frame-by-frame port of the Taito ROM's
+ * logic that tools/verify_engine_replay.js checks against MAME recordings. This page only
+ * draws it and feeds it input, at the arcade's own video rate (59.185606 Hz).
+ *
+ * Drawing follows the hardware: a 28x32 tilemap (walls, background, bricks and their
+ * shadows, HUD) under up to 16 sprites. With generated/arkanoid_rom_assets.js present the
+ * tiles, sprites and palette are the real ones, decoded from your ROMs; otherwise a
+ * reconstruction is drawn with the same geometry.
+ */
+(function () {
+  'use strict';
+
+  const errorBox = document.getElementById('error');
+  function fail(msg) {
+    errorBox.style.display = 'block';
+    errorBox.textContent = msg;
+    document.getElementById('screen').style.display = 'none';
+  }
+  if (typeof ArkanoidArcadeGame === 'undefined' || typeof ARKANOID_ARCADE_LEVELS === 'undefined') {
+    fail('Não foi possível carregar os scripts do jogo (arkanoid_arcade*.js).');
+    return;
+  }
+
+  const canvas = document.getElementById('screen');
+  const ctx = canvas.getContext('2d');
+  const W = 224, H = 256, COLS = 28, ROWS = 32;
+  const HISCORE_KEY = 'arkanoid.classic.hiscore';
+
+  // --- Scaling: integer when it fits, so pixels stay square and sharp ------------------
+  function fit() {
+    const availW = window.innerWidth * 0.96, availH = (window.innerHeight - 70) * 0.98;
+    let s = Math.min(availW / W, availH / H);
+    if (s >= 2) s = Math.floor(s);
+    s = Math.max(1, s);
+    canvas.style.width = Math.round(W * s) + 'px';
+    canvas.style.height = Math.round(H * s) + 'px';
+  }
+  window.addEventListener('resize', fit);
+  fit();
+
+  let hiScore = 50000;
+  try {
+    const v = parseInt(localStorage.getItem(HISCORE_KEY), 10);
+    if (Number.isFinite(v) && v > hiScore) hiScore = v;
+  } catch (e) { /* storage unavailable */ }
+
+  const game = new ArkanoidArcadeGame({ hiScore });
+  window.arkanoidGame = game;           // for the console and automated checks
+
+  // ======================================================================================
+  // ROM renderer: the arcade's own tiles, sprites and palette.
+  // ======================================================================================
+  function RomRenderer(rom) {
+    const pal = Uint8Array.from(atob(rom.palette), c => c.charCodeAt(0));
+    const packed = Uint8Array.from(atob(rom.tiles), c => c.charCodeAt(0));
+    const px = new Uint8Array(packed.length * 2);
+    for (let i = 0; i < packed.length; i++) { px[2 * i] = packed[i] >> 4; px[2 * i + 1] = packed[i] & 15; }
+
+    const tileCache = new Map(), spriteCache = new Map();
+
+    function paint(img, dx, tile, color, transparent) {
+      const d = img.data, w = img.width;
+      for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+          const v = px[tile * 64 + y * 8 + x];
+          const o = ((y * w) + dx + x) * 4;
+          if (transparent && v === 0) { d[o + 3] = 0; continue; }
+          const p = ((color * 8 + v) & 511) * 3;
+          d[o] = pal[p]; d[o + 1] = pal[p + 1]; d[o + 2] = pal[p + 2]; d[o + 3] = 255;
+        }
+      }
+    }
+    function tileImage(code, color) {
+      const key = code * 64 + color;
+      let c = tileCache.get(key);
+      if (!c) {
+        const img = new ImageData(8, 8);
+        paint(img, 0, code & 4095, color, false);
+        c = document.createElement('canvas');
+        c.width = 8; c.height = 8;
+        c.getContext('2d').putImageData(img, 0, 0);
+        tileCache.set(key, c);
+      }
+      return c;
+    }
+    // A sprite is two stacked native tiles; rotated for the player they sit side by side,
+    // the odd tile on the left.
+    function spriteImage(code, color) {
+      const key = code * 64 + color;
+      let c = spriteCache.get(key);
+      if (!c) {
+        const img = new ImageData(16, 8);
+        paint(img, 0, (2 * code + 1) & 4095, color, true);
+        paint(img, 8, (2 * code) & 4095, color, true);
+        c = document.createElement('canvas');
+        c.width = 16; c.height = 8;
+        c.getContext('2d').putImageData(img, 0, 0);
+        spriteCache.set(key, c);
+      }
+      return c;
+    }
+
+    const layer = document.createElement('canvas');
+    layer.width = W; layer.height = H;
+    const lctx = layer.getContext('2d');
+    const shown = new Int32Array(COLS * ROWS).fill(-1);
+    const want = new Int32Array(COLS * ROWS);
+
+    const DOORS = [[0x124, 0x125, 0x126, 0x127], [0x14a, 0x14b, 0x14c, 0x14d], [0x14e, 0x14f, 0x150, 0x151],
+                   [0x152, 0x153, 0x154, 0x155], [0x156, 0x157, 0x158, 0x159], [0x15a, 0x15b, 0x15c, 0x15d]];
+    // The Break gate opening on the right wall (rows 27-31), then its flicker.
+    const GATE_OPEN = [[[0x12e, 0x12d, 0x12c, 0x12b, 0x12a], 10], [[0x133, 0x132, 0x131, 0x130, 0x12f], 10],
+                       [[0x137, 0x136, 0x020, 0x135, 0x134], 10], [[0x13b, 0x13a, 0x020, 0x139, 0x138], 12],
+                       [[0x13d, 0x140, 0x13f, 0x13e, 0x13c], 12]];
+    const GATE_LOOP = [[0x140, 0x13f, 0x13e], [0x143, 0x142, 0x141], [0x149, 0x148, 0x147]];
+
+    function put(c, r, code, color) { want[r * COLS + c] = (code & 4095) | (color << 12); }
+    function text(c, r, str, color) {
+      for (let i = 0; i < str.length; i++) put(c + i, r, str.charCodeAt(i), color);
+    }
+    function number(rightCol, r, n, color, minDigits) {
+      const s = String(Math.floor(n)).padStart(minDigits, '0');
+      text(rightCol - s.length + 1, r, s, color);
+    }
+
+    this.name = 'rom';
+
+    this.draw = function (g, frame, opts) {
+      const title = g.phase === 'title';
+      const bgKey = title ? 'title' : g.isDoh ? '4' : String(g.background);
+      const scr = rom.screens[bgKey] || rom.screens['0'];
+      const bank = (!title && g.isDoh) ? 32 : 0;
+      for (let i = 0; i < want.length; i++) want[i] = (scr.codes[i] & 4095) | ((scr.colors[i] + bank) << 12);
+
+      if (!title) {
+        // Bricks, and the shadow each casts one tile right and one tile down.
+        const brickCells = new Uint8Array(COLS * ROWS);
+        for (let cell = 0; cell < 13 * 18; cell++) {
+          const b = g.brickAt(cell);
+          if (!b) continue;
+          const r = Math.floor(cell / 13) + 3, c = 1 + 2 * (cell % 13);
+          const [tl, tr, col] = rom.bricks[b.code];
+          put(c, r, tl + b.shine, col + bank);
+          put(c + 1, r, tr + b.shine, col + bank);
+          brickCells[r * COLS + c] = brickCells[r * COLS + c + 1] = 1;
+        }
+        const shade = rom.shadow[scr.normal];
+        if (shade !== undefined) {
+          for (let r = 4; r < ROWS; r++) {
+            for (let c = 2; c < COLS - 1; c++) {
+              const i = r * COLS + c;
+              if (!brickCells[i] && brickCells[i - COLS - 1] && scr.colors[i] === scr.normal) {
+                want[i] = (want[i] & 4095) | ((shade + bank) << 12);
+              }
+            }
+          }
+        }
+        // Spare Vaus icons.
+        const life = rom.life[bgKey] || rom.life['0'];
+        for (let i = 0; i < Math.min(g.lives - 1, 6); i++) {
+          put(1 + 2 * i, 31, life[0], life[2] + bank);
+          put(2 + 2 * i, 31, life[1], life[2] + bank);
+        }
+        // Enemy doors and the Break gate.
+        [5, 19].forEach((c0, d) => {
+          const f = DOORS[g.doorFrame(d)];
+          for (let k = 0; k < 4; k++) put(c0 + k, 2, f[k], 9 + bank);
+        });
+        if (g.portal.open) {
+          const t = g.portal.t;
+          const step = Math.floor(t / 2);
+          if (step < GATE_OPEN.length) {
+            const [codes, col] = GATE_OPEN[step];
+            codes.forEach((code, k) => put(27, 27 + k, code, col + bank));
+          } else {
+            put(27, 27, 0x13d, 12 + bank);
+            put(27, 31, 0x13c, 12 + bank);
+            GATE_LOOP[step % 3].forEach((code, k) => put(27, 28 + k, code, 12 + bank));
+          }
+        }
+      }
+      // HUD: blinking 1UP, score and high score (the palette bank applies to it too).
+      if (title || (frame >> 4) & 1) text(3, 0, '1UP', 1 + bank);
+      number(6, 1, g.score, bank, 2);
+      number(16, 1, Math.max(g.hiScore, g.score), bank, 2);
+      if (title) text(7, 31, 'PUSH SPACE', 0);
+
+      for (let i = 0; i < want.length; i++) {
+        if (want[i] === shown[i]) continue;
+        shown[i] = want[i];
+        const c = i % COLS, r = (i / COLS) | 0;
+        lctx.drawImage(tileImage(want[i] & 4095, want[i] >>> 12), c * 8, r * 8);
+      }
+      ctx.drawImage(layer, 0, 0);
+
+      if (!title && !(opts && opts.tilesOnly)) {
+        for (const s of g.sprites()) {
+          ctx.drawImage(spriteImage(s.code, (s.color + bank) & 63), s.s1 - 16, s.nx);
+        }
+      }
+    };
+  }
+
+  // ======================================================================================
+  // Fallback renderer: the same geometry drawn by hand, when no ROM assets are present.
+  // ======================================================================================
+  function FallbackRenderer() {
+    this.name = 'fallback';
+    const CAPSULE_LETTER = { 1: 'L', 2: 'E', 3: 'C', 4: 'S', 5: 'B', 6: 'D', 7: 'P' };
+
+    function drawVaus(x, width, y, color) {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(x + 4, y + 4, width, 8);
+      ctx.fillStyle = '#bc1f00';
+      ctx.fillRect(x, y + 1, width, 6);
+      ctx.fillStyle = '#ff5100';
+      ctx.fillRect(x + 1, y, 5, 8);
+      ctx.fillRect(x + width - 6, y, 5, 8);
+      ctx.fillStyle = color;
+      ctx.fillRect(x + 6, y + 1, width - 12, 6);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(x + 6, y + 2, width - 12, 1);
+    }
+
+    this.draw = function (g, frame) {
+      ctx.fillStyle = '#000014';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, 16);
+      ctx.fillStyle = '#8f8f8f';
+      ctx.fillRect(0, 16, W, 8);
+      ctx.fillRect(0, 16, 8, H - 16);
+      ctx.fillRect(W - 8, 16, 8, H - 16);
+      ctx.fillStyle = '#6f6f6f';
+      ctx.fillRect(40, 16, 32, 8);
+      ctx.fillRect(152, 16, 32, 8);
+
+      ctx.font = 'bold 8px monospace';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = '#ff0000';
+      if (g.phase === 'title' || (frame >> 4) & 1) ctx.fillText('1UP', 24, 0);
+      ctx.fillText('HIGH SCORE', 72, 0);
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'right';
+      ctx.fillText(String(g.score).padStart(2, '0'), 56, 8);
+      ctx.fillText(String(Math.max(g.hiScore, g.score)).padStart(2, '0'), 136, 8);
+      ctx.textAlign = 'left';
+
+      if (g.phase === 'title') {
+        ctx.fillStyle = '#ff4040';
+        ctx.font = 'bold 28px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('ARKANOID', W / 2, 80);
+        ctx.font = 'bold 8px monospace';
+        ctx.fillStyle = '#fff';
+        ctx.fillText('PUSH SPACE', W / 2, 200);
+        ctx.textAlign = 'left';
+        return;
+      }
+
+      // Shadows first (one tile right and down), then the bricks.
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      for (let cell = 0; cell < 13 * 18; cell++) {
+        if (!g.brickAt(cell)) continue;
+        const r = Math.floor(cell / 13) + 3, c = cell % 13;
+        const x = 8 + 16 * c + 8;
+        ctx.fillRect(x, r * 8 + 8, Math.min(16, W - 8 - x), 8);   // never over the wall
+      }
+      for (let cell = 0; cell < 13 * 18; cell++) {
+        const b = g.brickAt(cell);
+        if (!b) continue;
+        const r = Math.floor(cell / 13) + 3, c = cell % 13;
+        drawArkanoidBrick(ctx, 8 + 16 * c, r * 8, b.code);
+        if (b.shine) {
+          ctx.fillStyle = 'rgba(255,255,255,0.5)';
+          ctx.fillRect(8 + 16 * c + b.shine, r * 8, 2, 7);
+        }
+      }
+      if (g.portal.open) {
+        ctx.fillStyle = (frame >> 1) & 1 ? '#ff00ff' : '#ffffff';
+        ctx.fillRect(W - 8, 216, 8, 40);
+      }
+      for (let i = 0; i < Math.min(g.lives - 1, 6); i++) drawVaus(8 + 16 * i, 14, 249, '#8f8f8f');
+
+      for (const s of g.sprites()) {
+        const x = s.s1 - 16, y = s.nx;
+        if (s.code >= 0x1d0 || (s.code >= 0x1ca && s.code <= 0x1cf)) continue;   // text sprites
+        if (s.code === 0x1b8) {
+          ctx.fillStyle = '#000'; ctx.fillRect(x + 4, y + 4, 5, 4);
+          ctx.fillStyle = '#e0ffff'; ctx.fillRect(x, y + 1, 5, 2); ctx.fillRect(x + 1, y, 3, 4);
+        } else if (s.code >= 0x180 && s.code < 0x1b8 && s.color !== 8) {
+          const letter = CAPSULE_LETTER[Object.keys(ARK_CAPSULE_SPRITES).find(t => {
+            const base = ARK_CAPSULE_SPRITES[t][0];
+            return s.code >= base && s.code < base + 8;
+          })];
+          ctx.fillStyle = '#000'; ctx.fillRect(x + 2, y + 2, 16, 7);
+          ctx.fillStyle = ARK_CAPSULE_RGB[letter] || '#ccc';
+          ctx.fillRect(x + 1, y, 14, 7); ctx.fillRect(x, y + 1, 16, 5);
+          ctx.fillStyle = '#000';
+          ctx.font = 'bold 7px monospace';
+          ctx.fillText(letter, x + 5, y);
+        } else if (s.code >= 0x1bb && s.code <= 0x1bd) {
+          ctx.fillStyle = '#ff5100';
+          ctx.fillRect(x + 1, y, 2, 8); ctx.fillRect(x + 13, y, 2, 8);
+        } else if ((s.code >= 0x12a && s.code < 0x180) || (s.code >= 0x1be && s.code <= 0x1c7)) {
+          ctx.fillStyle = s.code >= 0x1be ? '#ffff80' : ['#ff8040', '#40ff80', '#8080ff', '#ff40ff'][(g.round - 1) & 3];
+          ctx.fillRect(x + 3, y, 10, 8);
+        }
+      }
+      // The Vaus, drawn once from the engine's geometry rather than per sprite.
+      if (['play', 'clear', 'escape'].includes(g.phase) ||
+          (g.phase === 'intro' && g.t >= 143) || (g.phase === 'dying' && g.t < 11)) {
+        const v = g.vaus;
+        const x0 = v.left - 16, x1 = v.right - 1;
+        drawVaus(x0, x1 - x0 + 1, 232, v.mode === 1 ? '#ff8080' : '#9d9d9d');
+      } else if (g.phase === 'dying' && g.t < 62) {
+        ctx.fillStyle = (frame & 2) ? '#ffff00' : '#ff4000';
+        const v = g.vaus, r = Math.min(24, (g.t - 11));
+        ctx.fillRect(v.left - 16 + 16 - r, 236 - r / 2, 2 * r, r);
+      }
+      ctx.font = 'bold 8px monospace';
+      ctx.fillStyle = '#fff';
+      if (g.phase === 'intro' && g.t >= 33 && g.t < 112) {
+        ctx.fillText('ROUND ' + String(g.round).padStart(2, ' '), 80, 176);
+        if (g.t >= 63) ctx.fillText('READY', 92, 192);
+      }
+      if (g.phase === 'gameover') ctx.fillText('GAME OVER', 76, 176);
+    };
+  }
+
+  // ?norom forces the reconstruction even when the generated assets are present.
+  const useRom = window.ARKANOID_ROM && !/[?&]norom\b/.test(location.search);
+  const renderer = useRom ? new RomRenderer(window.ARKANOID_ROM) : new FallbackRenderer();
+  // Advance and draw synchronously, e.g. from the console or a test driver.
+  window.arkanoidDebug = {
+    run(frames, input, drawOpts) {
+      for (let i = 0; i < frames; i++) game.step(typeof input === 'function' ? input(game) : input || {});
+      renderer.draw(game, game.frame, drawOpts);
+    }
+  };
+  document.getElementById('rom-note').textContent = renderer.name === 'rom'
+    ? 'Gráficos originais, decodificados da sua ROM (generated/arkanoid_rom_assets.js).'
+    : 'Sem os gráficos da ROM: visual reconstruído. Para os originais rode  python tools/build_rom_assets.py';
+
+  // ======================================================================================
+  // Sound: short synthesized cues. The arcade's AY-3-8910 music is not reproduced.
+  // ======================================================================================
+  const sound = {
+    ctx: null, muted: false,
+    init() {
+      if (!this.ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) this.ctx = new AC();
+      }
+      if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+    },
+    tone(freq, dur, type, vol, slide) {
+      if (this.muted || !this.ctx) return;
+      const t = this.ctx.currentTime;
+      const o = this.ctx.createOscillator(), gn = this.ctx.createGain();
+      o.type = type || 'square';
+      o.frequency.setValueAtTime(freq, t);
+      if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
+      gn.gain.setValueAtTime(vol || 0.06, t);
+      gn.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+      o.connect(gn); gn.connect(this.ctx.destination);
+      o.start(t); o.stop(t + dur);
+    },
+    play(name) {
+      switch (name) {
+        case 'vaus': this.tone(440, 0.06); break;
+        case 'wall': this.tone(330, 0.04); break;
+        case 'brick': this.tone(660, 0.05); break;
+        case 'metal': this.tone(1320, 0.07, 'triangle', 0.08); break;
+        case 'capsule': this.tone(520, 0.2, 'square', 0.05, 1040); break;
+        case 'laser': this.tone(1600, 0.08, 'sawtooth', 0.03, 400); break;
+        case 'enemy': this.tone(200, 0.12, 'sawtooth', 0.05, 80); break;
+        case 'death': this.tone(300, 0.9, 'sawtooth', 0.06, 40); break;
+        case 'life': this.tone(880, 0.3, 'square', 0.05, 1760); break;
+        case 'escape': this.tone(200, 0.8, 'triangle', 0.08, 1200); break;
+        case 'launch': this.tone(560, 0.05); break;
+      }
+    }
+  };
+
+  // ======================================================================================
+  // Input: the spinner becomes "how far the Vaus should move this frame".
+  // ======================================================================================
+  const keys = {};
+  let pointerX = null, buttonDown = false, paused = false, startRequest = false;
+
+  function arcadeX(clientX) {
+    const r = canvas.getBoundingClientRect();
+    return (clientX - r.left) * W / r.width;
+  }
+  canvas.addEventListener('pointermove', e => { pointerX = arcadeX(e.clientX); });
+  canvas.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    sound.init();
+    pointerX = arcadeX(e.clientX);
+    buttonDown = true;
+    startRequest = true;
+    if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
+  });
+  window.addEventListener('pointerup', () => { buttonDown = false; });
+  canvas.addEventListener('pointerleave', () => { pointerX = null; });
+
+  const FIRE_KEYS = ['Space', 'KeyZ', 'KeyX', 'Enter'];
+  window.addEventListener('keydown', e => {
+    if (['ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+    if (e.repeat) return;
+    keys[e.code] = true;
+    sound.init();
+    if (FIRE_KEYS.includes(e.code)) startRequest = true;
+    if (e.code === 'KeyP' || e.code === 'Escape') paused = !paused;
+    if (e.code === 'KeyM') sound.muted = !sound.muted;
+    if (['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD'].includes(e.code)) pointerX = null;
+  });
+  window.addEventListener('keyup', e => { keys[e.code] = false; });
+  // Keys still "held" when the window loses focus would keep the Vaus moving.
+  window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; buttonDown = false; });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) paused = true; });
+
+  function readInput() {
+    let delta = 0;
+    const v = game.vaus;
+    if (pointerX !== null && v) {
+      const centre = (v.left - 16 + v.right - 1) / 2;
+      delta = Math.round(pointerX - centre);
+    }
+    const speed = keys.ShiftLeft || keys.ShiftRight ? 8 : 4;
+    if (keys.ArrowLeft || keys.KeyA) delta = -speed;
+    if (keys.ArrowRight || keys.KeyD) delta = speed;
+    const button = buttonDown || FIRE_KEYS.some(k => keys[k]);
+    const start = startRequest && (game.phase === 'title' || (game.phase === 'gameover' && game.t > 120));
+    startRequest = false;
+    return { delta: Math.max(-127, Math.min(127, delta)), button, start };
+  }
+
+  // ======================================================================================
+  // Main loop at the arcade's frame rate.
+  // ======================================================================================
+  const FRAME = 1000 / ARK_FPS;
+  let last = performance.now(), acc = 0, frame = 0, savedHi = hiScore;
+
+  function tick(now) {
+    acc += Math.min(250, now - last);
+    last = now;
+    let steps = 0;
+    while (acc >= FRAME && steps < 5) {
+      acc -= FRAME;
+      steps++;
+      if (paused) continue;
+      game.step(readInput());
+      frame++;
+      for (const s of game.sounds) sound.play(s);
+    }
+    if (steps >= 5) acc = 0;
+    renderer.draw(game, frame);
+    if (paused) {
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(0, 112, W, 24);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 8px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('PAUSE - P', W / 2, 120);
+      ctx.textAlign = 'left';
+    }
+    if (game.hiScore > savedHi) {
+      savedHi = game.hiScore;
+      try { localStorage.setItem(HISCORE_KEY, String(savedHi)); } catch (e) { /* ignore */ }
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

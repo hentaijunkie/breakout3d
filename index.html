@@ -1,0 +1,1253 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Arkanoid Arcade - Authentic 2D Breakout</title>
+<script src="arkanoid_bricks.js"></script>
+<script src="arkanoid_levels_arcade.js"></script>
+<script src="arkanoid_arcade.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg-dark: #070913;
+    --panel-bg: rgba(14, 18, 36, 0.75);
+    --border-neon: rgba(0, 240, 255, 0.35);
+    --cyan: #00f0ff;
+    --magenta: #ff007f;
+    --gold: #ffd700;
+    --green: #00ff66;
+    --silver: #d0d8e8;
+  }
+
+  * {
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--bg-dark);
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #eaf4ff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    touch-action: none;
+    overscroll-behavior: none;
+    background-image: 
+      radial-gradient(circle at 50% 30%, rgba(0, 240, 255, 0.08) 0%, transparent 60%),
+      radial-gradient(circle at 80% 80%, rgba(255, 0, 127, 0.06) 0%, transparent 50%);
+  }
+
+  #game-wrapper {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 100vw;
+    max-height: 100vh;
+    padding: 12px;
+
+    /* Space taken by HUD + controls hint + padding. The playfield scales to
+       whatever is left, so the bottom of the field is never clipped. */
+    --chrome: 160px;
+    --game-w: min(540px, calc(100vw - 24px), calc((100vh - var(--chrome)) * 540 / 650));
+  }
+
+  /* HUD Header */
+  #hud {
+    width: var(--game-w);
+    max-width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--panel-bg);
+    border: 1px solid var(--border-neon);
+    border-bottom: none;
+    border-radius: 12px 12px 0 0;
+    padding: 10px 20px;
+    box-shadow: 0 0 25px rgba(0, 240, 255, 0.15);
+    backdrop-filter: blur(8px);
+    z-index: 5;
+  }
+
+  .hud-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .hud-label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: rgba(255, 255, 255, 0.6);
+    margin-bottom: 2px;
+  }
+
+  .hud-value {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 20px;
+    font-weight: 900;
+    color: var(--cyan);
+    text-shadow: 0 0 10px rgba(0, 240, 255, 0.6);
+  }
+
+  #lives-container {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    min-height: 24px;
+  }
+
+  .life-icon {
+    width: 22px;
+    height: 8px;
+    background: linear-gradient(180deg, #00f0ff, #0077aa);
+    border-radius: 3px;
+    border: 1px solid #ffffff;
+    box-shadow: 0 0 6px rgba(0, 240, 255, 0.8);
+  }
+
+  /* Canvas Container */
+  #canvas-container {
+    position: relative;
+    width: var(--game-w);
+    height: calc(var(--game-w) * 650 / 540);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.8), 0 0 15px rgba(0, 240, 255, 0.2);
+    border: 1px solid var(--border-neon);
+    border-radius: 0 0 12px 12px;
+    overflow: hidden;
+    background: #04050a;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: none;
+  }
+
+  /* Overlays */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(5, 7, 18, 0.88);
+    backdrop-filter: blur(8px);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 30px;
+    z-index: 10;
+    transition: opacity 0.3s ease;
+    /* The canvas hides the cursor; the overlay must give it back. */
+    cursor: auto;
+  }
+
+  .overlay.hidden {
+    display: none;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .overlay h1 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 38px;
+    font-weight: 900;
+    letter-spacing: 3px;
+    margin: 0 0 10px 0;
+    background: linear-gradient(90deg, #00f0ff, #ff007f, #ffd700);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+  }
+
+  .overlay p {
+    font-size: 15px;
+    color: #a0b0d0;
+    max-width: 420px;
+    line-height: 1.5;
+    margin: 6px 0;
+  }
+
+  .overlay .action-btn {
+    margin-top: 24px;
+    padding: 14px 32px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #050712;
+    background: linear-gradient(135deg, #00f0ff, #00aaff);
+    border: none;
+    border-radius: 30px;
+    cursor: pointer;
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.6);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .overlay .action-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 30px rgba(0, 240, 255, 0.9);
+  }
+
+  .overlay .action-btn:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 3px;
+  }
+
+  /* Powerup HUD status badges */
+  #active-powerup {
+    position: absolute;
+    bottom: 12px;
+    left: 20px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    background: rgba(0, 240, 255, 0.15);
+    border: 1px solid rgba(0, 240, 255, 0.4);
+    color: var(--cyan);
+    pointer-events: none;
+    display: none;
+  }
+
+  /* Mode switcher button */
+  #mode-switch {
+    position: absolute;
+    top: 12px;
+    right: 20px;
+    z-index: 12;
+  }
+
+  #mode-switch a {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: #7fe8ff;
+    text-decoration: none;
+    background: rgba(0, 240, 255, 0.1);
+    border: 1px solid rgba(0, 240, 255, 0.3);
+    padding: 4px 10px;
+    border-radius: 6px;
+    transition: background 0.2s;
+  }
+
+  #mode-switch a:hover {
+    background: rgba(0, 240, 255, 0.25);
+  }
+
+  /* Bottom Footer Controls Hint */
+  #controls-hint {
+    margin-top: 10px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+    letter-spacing: 0.5px;
+    text-align: center;
+  }
+
+  #controls-hint kbd {
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-family: inherit;
+    font-size: 11px;
+    color: #fff;
+  }
+</style>
+</head>
+<body>
+
+<div id="game-wrapper">
+  <!-- HUD Header -->
+  <div id="hud">
+    <div class="hud-box">
+      <span class="hud-label">SCORE</span>
+      <span class="hud-value" id="score-val">000000</span>
+    </div>
+    <div class="hud-box">
+      <span class="hud-label">HIGH SCORE</span>
+      <span class="hud-value" id="highscore-val">000000</span>
+    </div>
+    <div class="hud-box">
+      <span class="hud-label">STAGE</span>
+      <span class="hud-value" id="stage-val">01</span>
+    </div>
+    <div class="hud-box">
+      <span class="hud-label">SHIPS</span>
+      <div id="lives-container"></div>
+    </div>
+  </div>
+
+  <!-- Main Game Canvas Area -->
+  <div id="canvas-container">
+    <div id="mode-switch">
+      <a href="arkanoid_classic.html">RÉPLICA</a> <a href="breakout3d.html">MODO 3D &rarr;</a>
+    </div>
+
+    <canvas id="gameCanvas" width="540" height="650"></canvas>
+    <div id="active-powerup">CÁPSULA ATIVA: NENHUMA</div>
+
+    <!-- Start / Pause / GameOver Overlay -->
+    <div id="overlay" class="overlay">
+      <h1 id="overlay-title">ARKANOID 2D</h1>
+      <p id="overlay-desc">Mova o mouse para posicionar o Vaus (raquete). Destrua todos os blocos coloridos e evite deixar a bola cair.</p>
+      <p style="font-size: 13px; color: #7f95c0; margin-top: 10px;">
+        Regras do arcade original: 32 direções, velocidade que sobe com os toques e no teto, 6 zonas no Vaus e cápsulas saindo só dos tijolos marcados na fase.
+      </p>
+      <button id="overlay-btn" class="action-btn">INICIAR JOGO</button>
+    </div>
+  </div>
+
+  <div id="controls-hint">
+    <kbd>MOUSE</kbd> ou <kbd>A</kbd>/<kbd>D</kbd> Mover &nbsp;•&nbsp; <kbd>CLIQUE</kbd> ou <kbd>ESPAÇO</kbd> Lançar / Atirar Laser &nbsp;•&nbsp; <kbd>P</kbd> Pausar
+  </div>
+</div>
+
+<script>
+/**
+ * ARKANOID 2D - NEON
+ *
+ * A cyberpunk-styled tribute running the arcade's own rules (arkanoid_arcade.js, read
+ * from the Taito ROM): the ball moves along the ROM's 32 directions at its discrete speed
+ * levels, speeds up by hit count and on touching the ceiling, bounces off the Vaus by the
+ * ROM's six zones, and capsules come only from the bricks the round data flags, with the
+ * arcade's type rule. Levels are the ripped arcade rounds. The visual treatment - glow,
+ * bevels, particles - is deliberately not period-accurate; arkanoid_classic.html is the
+ * faithful replica.
+ */
+(function () {
+  "use strict";
+
+  if (typeof arkanoidRoundLayout === 'undefined' || typeof ARKANOID_BRICK_RGB === 'undefined' ||
+      typeof arkVelocity === 'undefined') {
+    document.body.innerHTML =
+      '<div style="padding:40px;font-family:sans-serif;color:#ff007f">' +
+      '<h2>FALHA AO CARREGAR</h2><p>Os scripts do jogo (arkanoid_*.js) não foram encontrados.</p></div>';
+    return;
+  }
+
+  // Minimal fallback for browsers without CanvasRenderingContext2D.roundRect.
+  if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+      const radius = Math.min(typeof r === 'number' ? r : 0, w / 2, h / 2);
+      this.beginPath();
+      this.moveTo(x + radius, y);
+      this.arcTo(x + w, y, x + w, y + h, radius);
+      this.arcTo(x + w, y + h, x, y + h, radius);
+      this.arcTo(x, y + h, x, y, radius);
+      this.arcTo(x, y, x + w, y, radius);
+      this.closePath();
+      return this;
+    };
+  }
+
+  // --- Audio Synthesizer ---
+  class SoundFX {
+    constructor() { this.ctx = null; this.enabled = true; }
+    init() {
+      if (!this.ctx) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) this.ctx = new AudioCtx();
+      }
+      if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+    }
+    sweep(type, from, to, dur, vol, at) {
+      if (!this.enabled || !this.ctx) return;
+      try {
+        const t = this.ctx.currentTime + (at || 0);
+        const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(from, t);
+        if (to !== from) osc.frequency.exponentialRampToValueAtTime(to, t + dur);
+        gain.gain.setValueAtTime(vol, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(t);
+        osc.stop(t + dur);
+      } catch (e) { /* audio unavailable */ }
+    }
+    paddleHit() { this.sweep('sine', 320, 540, 0.08, 0.2); }
+    wallHit() { this.sweep('square', 200, 200, 0.05, 0.1); }
+    brickHit() { this.sweep('triangle', 480, 480, 0.07, 0.18); }
+    silverHit() { this.sweep('sine', 880, 880, 0.06, 0.2); }
+    goldHit() { this.sweep('sine', 1400, 1400, 0.05, 0.22); }
+    laserShoot() { this.sweep('sawtooth', 800, 120, 0.1, 0.18); }
+    powerupCatch() { [523.25, 659.25, 783.99].forEach((f, i) => this.sweep('triangle', f, f, 0.1, 0.15, i * 0.05)); }
+    lifeLost() { this.sweep('sawtooth', 300, 60, 0.4, 0.25); }
+    stageClear() { [440, 554.37, 659.25, 880].forEach((f, i) => this.sweep('sine', f, f, 0.2, 0.2, i * 0.1)); }
+  }
+
+  // --- Constants & Config ---
+  const CANVAS_WIDTH = 540;
+  const CANVAS_HEIGHT = 650;
+  const WALL_LEFT = 20;
+  const WALL_RIGHT = 520;
+  const WALL_TOP = 40;
+
+  // The arcade playfield is 13 columns. Bricks span the walls exactly and keep the
+  // arcade's 2:1 cell aspect (a brick cell is 16 x 8 px on real hardware).
+  const BRICK_COLS = 13;
+  const BRICK_WIDTH = (WALL_RIGHT - WALL_LEFT) / BRICK_COLS;   // 500 / 13
+  const BRICK_HEIGHT = BRICK_WIDTH / 2;
+  const BRICK_OFFSET_X = WALL_LEFT;
+  const BRICK_OFFSET_Y = WALL_TOP + 40;
+
+  const PADDLE_Y = 600;
+  const PADDLE_NORMAL_WIDTH = 74;
+  const PADDLE_EXPAND_WIDTH = 110;
+  const PADDLE_HEIGHT = 14;
+
+  const BALL_RADIUS = 6;
+  // Arcade pixels -> this arena: the 208 px arcade playfield maps onto 500 px.
+  const SCALE = (WALL_RIGHT - WALL_LEFT) / 208;
+
+  // Break gate on the right wall, shared by the hit test and the renderer.
+  const PORTAL_TOP = PADDLE_Y - 40;
+  const PORTAL_HEIGHT = 60;
+
+  // Capsule letters in their arcade colours (Break is magenta, Player grey).
+  const POWERUP_TYPES = {
+    E: { color: ARK_CAPSULE_RGB.E, label: 'ENLARGE (E)', persistent: true },
+    C: { color: ARK_CAPSULE_RGB.C, label: 'CATCH (C)', persistent: true },
+    L: { color: ARK_CAPSULE_RGB.L, label: 'LASER (L)', persistent: true },
+    S: { color: ARK_CAPSULE_RGB.S, label: 'SLOW (S)' },
+    D: { color: ARK_CAPSULE_RGB.D, label: 'DISRUPTION (D)' },
+    B: { color: ARK_CAPSULE_RGB.B, label: 'BREAK (B)' },
+    P: { color: ARK_CAPSULE_RGB.P, label: 'PLAYER (+1)' }
+  };
+
+  const HIGHSCORE_KEY = 'arkanoid2d.highscore';
+
+  // --- Game Engine State ---
+  let canvas, ctx;
+  const audio = new SoundFX();
+  let gameState = 'start'; // start | playing | paused | lifelost | stageclear | gameover
+  let overlayAction = null; // what the overlay button (and SPACE) should do right now
+  let score = 0;
+  let highScore = 0;
+  let lives = 3;
+  let stage = 1;
+  let extraLives = 0;         // extra lives already awarded for score
+
+  // The arcade's per-life state.
+  let mode = null;            // persistent Vaus mode: 'L', 'E', 'C' or null
+  let lastCapsule = null;     // last capsule caught (the type rule avoids repeating it)
+  let pGiven = false;         // a P capsule already dropped this life
+  let multiball = false;      // Disruption: no capsules until one ball is left
+  let speedLevel = 6;         // shared ball speed level (0xc462)
+  let hitCounter = 0;         // bricks and bounces since the last speed-up (0xef63)
+
+  let paddle = { x: CANVAS_WIDTH / 2, y: PADDLE_Y, width: PADDLE_NORMAL_WIDTH, height: PADDLE_HEIGHT };
+
+  let balls = [];
+  let bricks = [];
+  let capsules = [];
+  let lasers = [];
+  let particles = [];
+  let portalOpen = false;
+
+  // Input states
+  let mouseX = CANVAS_WIDTH / 2;
+  let keys = {};
+
+  // Fixed timestep at the arcade's frame rate: one physics step is one arcade frame.
+  let lastTime = 0;
+  const FIXED_STEP = 1 / ARK_FPS;
+  let accumulator = 0;
+
+  // DOM Elements
+  const scoreEl = document.getElementById('score-val');
+  const highScoreEl = document.getElementById('highscore-val');
+  const stageEl = document.getElementById('stage-val');
+  const livesContainer = document.getElementById('lives-container');
+  const overlay = document.getElementById('overlay');
+  const overlayTitle = document.getElementById('overlay-title');
+  const overlayDesc = document.getElementById('overlay-desc');
+  const overlayBtn = document.getElementById('overlay-btn');
+  const activePowerupBadge = document.getElementById('active-powerup');
+
+  // Read-only view of the game, for the console and automated checks.
+  window.arkanoidNeon = {
+    state: () => ({ gameState, score, lives, stage, mode, speedLevel, hitCounter, multiball, portalOpen,
+                    paddle: { ...paddle }, balls: balls.map(b => ({ x: b.x, y: b.y, d: b.d, glued: b.glued })),
+                    capsules: capsules.map(c => c.type), bricks: bricks.length })
+  };
+
+  // --- Initialization ---
+  window.addEventListener('DOMContentLoaded', () => {
+    canvas = document.getElementById('gameCanvas');
+    ctx = canvas.getContext('2d');
+
+    highScore = loadHighScore();
+    setupEventListeners();
+    updateHUD();
+
+    showOverlay(
+      'ARKANOID 2D',
+      'Mova o mouse (ou arraste o dedo) para posicionar o Vaus. Destrua todos os blocos coloridos e evite deixar a bola cair.',
+      'INICIAR JOGO',
+      restartGame
+    );
+
+    requestAnimationFrame(gameLoop);
+  });
+
+  function pointerToCanvasX(clientX) {
+    const rect = canvas.getBoundingClientRect();
+    return (clientX - rect.left) * canvas.width / rect.width;
+  }
+
+  function setupEventListeners() {
+    // Pointer events cover mouse, pen and touch in one path.
+    canvas.addEventListener('pointermove', (e) => {
+      mouseX = pointerToCanvasX(e.clientX);
+    }, { passive: true });
+
+    canvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      audio.init();
+      mouseX = pointerToCanvasX(e.clientX);
+      onPrimaryAction();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.repeat) return;         // auto-repeat used to spam pause / launch
+      keys[e.code] = true;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        audio.init();
+        // With an overlay up SPACE confirms it, so the game can be started and
+        // resumed from the keyboard alone.
+        if (overlayAction) overlayAction();
+        else onPrimaryAction();
+      }
+      if (e.code === 'KeyP') togglePause();
+    });
+
+    window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+    // A key held while the window loses focus never gets its keyup.
+    window.addEventListener('blur', () => { keys = {}; });
+
+    overlayBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      audio.init();
+      if (overlayAction) overlayAction();
+    });
+
+    // Auto-pause when the tab is hidden.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && gameState === 'playing') togglePause();
+    });
+  }
+
+  function loadHighScore() {
+    try {
+      const v = parseInt(window.localStorage.getItem(HIGHSCORE_KEY), 10);
+      return Number.isFinite(v) ? v : 0;
+    } catch (e) { return 0; }
+  }
+
+  function saveHighScore(v) {
+    try { window.localStorage.setItem(HIGHSCORE_KEY, String(v)); } catch (e) { /* ignore */ }
+  }
+
+  function updateHUD() {
+    scoreEl.textContent = score.toString().padStart(6, '0');
+    highScoreEl.textContent = Math.max(score, highScore).toString().padStart(6, '0');
+    stageEl.textContent = stage.toString().padStart(2, '0');
+
+    // Ship icons, rebuilt only when the count changes (updateHUD runs on every hit).
+    const spare = Math.max(0, lives - 1);
+    if (livesContainer.childElementCount !== spare) {
+      livesContainer.innerHTML = '';
+      for (let i = 0; i < spare; i++) {
+        const icon = document.createElement('div');
+        icon.className = 'life-icon';
+        livesContainer.appendChild(icon);
+      }
+    }
+
+    if (mode) {
+      activePowerupBadge.style.display = 'block';
+      activePowerupBadge.textContent = `CÁPSULA ATIVA: ${POWERUP_TYPES[mode].label}`;
+      activePowerupBadge.style.borderColor = POWERUP_TYPES[mode].color;
+      activePowerupBadge.style.color = POWERUP_TYPES[mode].color;
+    } else {
+      activePowerupBadge.style.display = 'none';
+    }
+  }
+
+  // --- Ball model: the arcade's direction index and speed level --------------------------
+  // A ball carries a direction d (0-31, clockwise from straight up) and moves at the shared
+  // speed level; arkVelocity() turns the pair into arcade pixels per frame.
+  function createBall(x, y, d, glued) {
+    return { x, y, d, radius: BALL_RADIUS, glued: !!glued, glueOffsetX: 0, holdFrames: 0 };
+  }
+
+  function ballVelocity(b) {
+    const v = arkVelocity(b.d, speedLevel);
+    return { vx: v.vx * SCALE * ARK_FPS, vy: v.vy * SCALE * ARK_FPS };
+  }
+
+  const movingUp = b => (b.d & 0x18) === 0 || (b.d & 0x18) === 0x18;
+  const movingLeft = b => (b.d & 0x10) !== 0;
+
+  /** 0xef63: every brick hit and every wall/ceiling bounce counts toward a speed-up. */
+  function countHit() { hitCounter = (hitCounter + 1) & 0xff; }
+
+  function resetPaddleAndBall() {
+    paddle.width = PADDLE_NORMAL_WIDTH;
+    paddle.x = CANVAS_WIDTH / 2;
+    mouseX = paddle.x;
+    // The arcade starts the ball on the right half of the Vaus centre: direction 2.
+    const b = createBall(paddle.x, paddle.y - PADDLE_HEIGHT / 2 - BALL_RADIUS - 1, 2, true);
+    b.glueOffsetX = 5;
+    b.holdFrames = ARK_VAUS.catchTimer;          // leaves by itself after 2 seconds
+    balls = [b];
+  }
+
+  /** The per-life reset the arcade does (0x05B5): speed, powerups, capsules. */
+  function startLife() {
+    speedLevel = arkanoidRoundInfo(stage).speed;
+    hitCounter = 0;
+    mode = null;
+    lastCapsule = null;
+    pGiven = false;
+    multiball = false;
+    portalOpen = false;
+    capsules = [];
+    lasers = [];
+    resetPaddleAndBall();
+  }
+
+  function releaseGluedBalls() {
+    let any = false;
+    for (const b of balls) {
+      if (!b.glued) continue;
+      b.glued = false;
+      b.holdFrames = 0;
+      any = true;
+    }
+    return any;
+  }
+
+  function onPrimaryAction() {
+    if (gameState !== 'playing') return;
+    if (releaseGluedBalls()) return;
+    // Laser: two beams per shot, at most two shots on screen.
+    if (mode === 'L' && lasers.length < 4) {
+      const pLeft = paddle.x - paddle.width / 2 + 8;
+      const pRight = paddle.x + paddle.width / 2 - 8;
+      const pY = paddle.y - paddle.height / 2;
+      lasers.push({ x: pLeft, y: pY, vy: -5 * SCALE * ARK_FPS, width: 4, height: 14 });
+      lasers.push({ x: pRight, y: pY, vy: -5 * SCALE * ARK_FPS, width: 4, height: 14 });
+      audio.laserShoot();
+    }
+  }
+
+  // --- Levels: the ripped arcade rounds -----------------------------------------------------
+  const COLOR_NAMES = { 1: 'white', 2: 'orange', 3: 'cyan', 4: 'green', 5: 'red', 6: 'blue',
+                        7: 'pink', 8: 'yellow', 9: 'silver', 10: 'gold' };
+
+  function loadLevel(lvl) {
+    bricks = [];
+    lasers = [];
+    capsules = [];
+    portalOpen = false;
+
+    const info = arkanoidRoundInfo(lvl);
+    // Trimmed of its leading empty rows: this renderer places the formation itself.
+    const layout = arkanoidRoundLayout(lvl);
+    for (let r = 0; r < layout.bricks.length; r++) {
+      for (let c = 0; c < layout.bricks[r].length; c++) {
+        const code = layout.bricks[r][c];
+        if (!code) continue;
+        const hp = code === 10 ? Infinity : code === 9 ? info.silverHits : 1;
+        bricks.push({
+          x: BRICK_OFFSET_X + c * BRICK_WIDTH, y: BRICK_OFFSET_Y + r * BRICK_HEIGHT,
+          w: BRICK_WIDTH - 1, h: BRICK_HEIGHT - 1,
+          code, type: COLOR_NAMES[code], color: ARKANOID_BRICK_RGB[code],
+          bevel: ARKANOID_BRICK_BEVEL[code] || null,
+          // Silver scores 50 x round, gold nothing, colours 50-120.
+          pts: code === 10 ? 0 : code === 9 ? arkSilverPoints(((lvl - 1) % 32) + 1) : ARK_BRICK_POINTS[code - 1],
+          hp, maxHp: hp,
+          isSilver: code === 9, isGold: code === 10,
+          capsule: !!layout.capsules[r][c]
+        });
+      }
+    }
+  }
+
+  // --- Main Fixed Timestep Loop ---
+  function gameLoop(timestamp) {
+    if (!lastTime) lastTime = timestamp;
+    let dt = (timestamp - lastTime) / 1000;
+    if (dt > 0.2) dt = 0.2; // Prevent spiral of death on tab unfocus
+    lastTime = timestamp;
+
+    if (gameState === 'playing') {
+      accumulator += dt;
+      // The state check stops physics after a death / stage clear mid-catch-up.
+      while (accumulator >= FIXED_STEP && gameState === 'playing') {
+        updatePhysics(FIXED_STEP);
+        accumulator -= FIXED_STEP;
+      }
+      if (gameState !== 'playing') accumulator = 0;
+    } else {
+      accumulator = 0;
+    }
+
+    render();
+    requestAnimationFrame(gameLoop);
+  }
+
+  // --- Physics & Game Logic Update ---
+  function updatePhysics(dt) {
+    updatePaddlePosition(dt);
+    if (gameState !== 'playing') return;   // escaping through the Break gate ends the round
+    updateSpeed();
+    updateBalls(dt);
+    if (gameState !== 'playing') return;   // a death may have ended the round
+    updateLasers(dt);
+    updateCapsules(dt);
+    updateParticles(dt);
+    removeDeadBricks();
+    checkStageClear();
+  }
+
+  /** 0x0900: enough hits and the next time the ball heads up, the speed level rises. */
+  function updateSpeed() {
+    const b = balls.find(x => !x.glued);
+    if (!b || hitCounter < ARK_SPEEDUP_HITS[speedLevel] || !movingUp(b)) return;
+    hitCounter = 0;
+    if (speedLevel < ARK_SPEED_MAX) speedLevel++;
+    b.d = arkSpeedupNudge(b.d);
+  }
+
+  function removeDeadBricks() {
+    for (let i = bricks.length - 1; i >= 0; i--) {
+      if (bricks[i].hp <= 0) bricks.splice(i, 1);
+    }
+  }
+
+  function updatePaddlePosition(dt) {
+    const kbSpeed = 520 * dt;
+    if (keys['KeyA'] || keys['ArrowLeft']) mouseX -= kbSpeed;
+    if (keys['KeyD'] || keys['ArrowRight']) mouseX += kbSpeed;
+
+    const minX = WALL_LEFT + paddle.width / 2;
+    const maxX = WALL_RIGHT - paddle.width / 2;
+    // Keep the target itself inside the walls, or holding a key would push it far
+    // out of range and the paddle would lag when the key is reversed.
+    mouseX = Math.max(minX, Math.min(maxX, mouseX));
+    paddle.x = mouseX;
+
+    // The Break capsule opens a gate on the right wall and it is the VAUS that escapes
+    // through it (+10,000), not the ball - CAPSULE_ACTION_LIGHT_MAGENTA only opens it.
+    if (portalOpen && paddle.x >= maxX - 1) {
+      addScore(ARK_POINTS.escape);
+      audio.stageClear();
+      nextStage();
+      return;
+    }
+
+    for (const b of balls) {
+      if (!b.glued) continue;
+      b.x = paddle.x + b.glueOffsetX;
+      b.y = paddle.y - paddle.height / 2 - b.radius - 1;
+      if (--b.holdFrames <= 0) b.glued = false;
+    }
+  }
+
+  function updateBalls(dt) {
+    for (let i = balls.length - 1; i >= 0; i--) {
+      const b = balls[i];
+      if (b.glued) continue;
+
+      const { vx, vy } = ballVelocity(b);
+      let nextX = b.x + vx * dt;
+      let nextY = b.y + vy * dt;
+
+      // --- 1. Walls and ceiling (0x141B) ---
+      if (nextX - b.radius < WALL_LEFT) {
+        nextX = WALL_LEFT + b.radius;
+        if (movingLeft(b)) { b.d = arkBounceLeft(b.d); countHit(); audio.wallHit(); }
+      } else if (nextX + b.radius > WALL_RIGHT) {
+        nextX = WALL_RIGHT - b.radius;
+        if (!movingLeft(b)) { b.d = arkBounceRight(b.d); countHit(); audio.wallHit(); }
+      }
+      if (nextY - b.radius < WALL_TOP) {
+        nextY = WALL_TOP + b.radius;
+        // Touching the ceiling raises the speed to the round's minimum.
+        const floor = ARK_CEILING_SPEED[(stage - 1) % 34] || 0;
+        if (speedLevel < floor) speedLevel = floor;
+        if (movingUp(b)) { b.d = arkBounceCeiling(b.d); countHit(); audio.wallHit(); }
+      }
+
+      b.x = nextX;
+      b.y = nextY;
+
+      // --- 2. Vaus: six zones, three angles per side (0x1318) ---
+      if (!movingUp(b) && b.y + b.radius >= paddle.y - paddle.height / 2 &&
+          b.y - b.radius <= paddle.y + paddle.height / 2 &&
+          b.x >= paddle.x - paddle.width / 2 - b.radius && b.x <= paddle.x + paddle.width / 2 + b.radius) {
+        const p = (b.x - (paddle.x - paddle.width / 2)) / paddle.width;
+        b.d = arkVausZoneAt(Math.max(0, Math.min(1, p)), mode === 'E' ? 48 : 32).d;
+        b.y = paddle.y - paddle.height / 2 - b.radius - 1;
+        audio.paddleHit();
+        spawnSparkParticles(b.x, b.y, '#00f0ff', 6);
+        if (mode === 'C') {
+          b.glued = true;
+          b.glueOffsetX = b.x - paddle.x;
+          b.holdFrames = ARK_VAUS.catchTimer;   // the Catch lets go after 2 seconds
+          continue;
+        }
+      }
+
+      // --- 3. Bricks ---
+      checkBrickCollision(b);
+
+      // --- 4. Bottom Kill Plane ---
+      if (b.y - b.radius > CANVAS_HEIGHT) balls.splice(i, 1);
+    }
+
+    if (multiball && balls.length <= 1) multiball = false;
+    if (balls.length === 0) handleLifeLost();
+  }
+
+  /** Reflect off the face the ball crossed, but only if it is heading into it. */
+  function checkBrickCollision(ball) {
+    for (let i = 0; i < bricks.length; i++) {
+      const br = bricks[i];
+      if (br.hp <= 0) continue;
+
+      const closestX = Math.max(br.x, Math.min(ball.x, br.x + br.w));
+      const closestY = Math.max(br.y, Math.min(ball.y, br.y + br.h));
+      const dx = ball.x - closestX, dy = ball.y - closestY;
+      if (dx * dx + dy * dy > ball.radius * ball.radius) continue;
+
+      const overlapX = (br.w / 2 + ball.radius) - Math.abs(ball.x - (br.x + br.w / 2));
+      const overlapY = (br.h / 2 + ball.radius) - Math.abs(ball.y - (br.y + br.h / 2));
+      if (overlapX < overlapY) {
+        const fromLeft = ball.x < br.x + br.w / 2;
+        if (fromLeft !== movingLeft(ball)) ball.d = arkReflectColumn(ball.d);
+        ball.x += fromLeft ? -overlapX : overlapX;
+      } else {
+        const fromAbove = ball.y < br.y + br.h / 2;
+        if (fromAbove !== movingUp(ball)) ball.d = arkReflectRow(ball.d);
+        ball.y += fromAbove ? -overlapY : overlapY;
+      }
+      hitBrick(br);
+      break; // one brick per physics tick keeps the bounce stable
+    }
+  }
+
+  /** One hit on a brick, from the ball or a laser (0x5854). */
+  function hitBrick(br) {
+    countHit();
+    if (br.isGold) {
+      audio.goldHit();
+      spawnSparkParticles(br.x + br.w / 2, br.y + br.h / 2, '#ffd700', 8);
+      return;
+    }
+    br.hp--;
+    if (br.hp > 0) {
+      audio.silverHit();
+      spawnSparkParticles(br.x + br.w / 2, br.y + br.h / 2, '#ffffff', 5);
+      return;
+    }
+    // The capsule type is rolled before the brick's own points are added.
+    if (br.capsule) tryDropCapsule(br.x + br.w / 2, br.y + br.h / 2);
+    addScore(br.pts);
+    audio.brickHit();
+    spawnSparkParticles(br.x + br.w / 2, br.y + br.h / 2, br.isSilver ? '#c0c8d8' : br.color, 12);
+  }
+
+  /** Only flagged bricks drop capsules; one at a time, none during Disruption. */
+  function tryDropCapsule(x, y) {
+    if (capsules.length > 0 || multiball || portalOpen) return;
+    const letter = arkCapsuleLetter(Math.random, score, lastCapsule, pGiven);
+    if (!letter) return;
+    if (letter === 'P') pGiven = true;
+    capsules.push({ x, y, type: letter, vy: SCALE * ARK_FPS, w: 28, h: 14 });
+  }
+
+  // --- Lasers ---
+  function updateLasers(dt) {
+    for (let i = lasers.length - 1; i >= 0; i--) {
+      const l = lasers[i];
+      l.y += l.vy * dt;
+      if (l.y < WALL_TOP) { lasers.splice(i, 1); continue; }
+      for (let j = 0; j < bricks.length; j++) {
+        const br = bricks[j];
+        if (br.hp <= 0) continue;
+        if (l.x >= br.x && l.x <= br.x + br.w && l.y >= br.y && l.y <= br.y + br.h) {
+          spawnSparkParticles(l.x, l.y, '#ff0055', 6);
+          lasers.splice(i, 1);
+          hitBrick(br);                // same scoring as the ball, silver included
+          break;
+        }
+      }
+    }
+  }
+
+  // --- Capsules & Powerup Activation ---
+  function updateCapsules(dt) {
+    for (let i = capsules.length - 1; i >= 0; i--) {
+      const c = capsules[i];
+      c.y += c.vy * dt;
+      if (c.y + c.h / 2 >= paddle.y - paddle.height / 2 && c.y - c.h / 2 <= paddle.y + paddle.height / 2 &&
+          c.x >= paddle.x - paddle.width / 2 && c.x <= paddle.x + paddle.width / 2) {
+        activatePowerup(c.type);
+        audio.powerupCatch();
+        spawnSparkParticles(c.x, c.y, POWERUP_TYPES[c.type].color, 16);
+        capsules.splice(i, 1);
+        continue;
+      }
+      if (c.y > CANVAS_HEIGHT + 20) capsules.splice(i, 1);
+    }
+  }
+
+  /**
+   * 0x5386: every capsule ends the current Vaus mode first (the arcade resets the Vaus
+   * before applying the new effect), releases a held ball and is worth 1,000.
+   */
+  function activatePowerup(letter) {
+    addScore(ARK_POINTS.capsule);
+    lastCapsule = letter;
+    releaseGluedBalls();
+    if (mode === 'L' && letter !== 'L') lasers = [];
+    mode = POWERUP_TYPES[letter].persistent ? letter : null;
+    paddle.width = mode === 'E' ? PADDLE_EXPAND_WIDTH : PADDLE_NORMAL_WIDTH;
+    multiball = false;
+
+    if (letter === 'D') {
+      // Disruption: three balls on directions d-1, d, d+1 from the same spot.
+      const src = balls[0];
+      if (src) {
+        balls = arkDisruptionDirections(src.d).map(d => createBall(src.x, src.y, d, false));
+        multiball = true;
+      }
+    } else if (letter === 'S') {
+      speedLevel = arkSlowLevel(speedLevel);
+    } else if (letter === 'P') {
+      lives++;
+    } else if (letter === 'B') {
+      portalOpen = true;
+    }
+    updateHUD();
+  }
+
+  // --- Particles ---
+  function spawnSparkParticles(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 40 + Math.random() * 160;
+      particles.push({
+        x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+        color, life: 1.0, decay: 2.0 + Math.random() * 2.0, size: 2 + Math.random() * 3
+      });
+    }
+  }
+
+  function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.life -= p.decay * dt;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+  }
+
+  // --- Game Flow State Transitions ---
+  function addScore(pts) {
+    score += pts;
+    // Extra lives at 20,000, 60,000 and every 60,000 after.
+    while (score >= arkNextExtraLife(extraLives)) {
+      extraLives++;
+      lives++;
+    }
+    if (score > highScore) {
+      highScore = score;
+      saveHighScore(highScore);
+    }
+    updateHUD();
+  }
+
+  function checkStageClear() {
+    if (bricks.some(b => !b.isGold && b.hp > 0)) return;
+    audio.stageClear();
+    gameState = 'stageclear';
+    clearRoundEntities();
+    showOverlay(
+      `ESTÁGIO ${stage} CONCLUÍDO`,
+      `Pontuação: ${score}. O próximo estágio traz um novo traçado.`,
+      'PRÓXIMO ESTÁGIO',
+      nextStage
+    );
+  }
+
+  function handleLifeLost() {
+    lives--;
+    updateHUD();
+    audio.lifeLost();
+    clearRoundEntities();
+
+    if (lives <= 0) {
+      gameState = 'gameover';
+      showOverlay('GAME OVER', `Sua pontuação final foi de ${score} pontos no Estágio ${stage}. Recorde: ${highScore}.`, 'JOGAR NOVAMENTE', restartGame);
+    } else {
+      gameState = 'lifelost';
+      startLife();                 // the Break gate closes and every powerup is lost
+      updateHUD();
+      showOverlay('BOLA PERDIDA', `Vidas restantes: ${lives}. A bola volta presa ao Vaus — clique ou aperte ESPAÇO para lançar.`, 'CONTINUAR', resumePlay);
+    }
+  }
+
+  // Leftover capsules and lasers from the previous round used to survive a death.
+  function clearRoundEntities() {
+    capsules = [];
+    lasers = [];
+    particles = [];
+  }
+
+  function resumePlay() {
+    gameState = 'playing';
+    hideOverlay();
+  }
+
+  function nextStage() {
+    stage++;
+    loadLevel(stage);
+    startLife();
+    updateHUD();
+    resumePlay();
+  }
+
+  function restartGame() {
+    score = 0;
+    lives = 3;
+    stage = 1;
+    extraLives = 0;
+    loadLevel(stage);
+    clearRoundEntities();
+    startLife();
+    updateHUD();
+    resumePlay();
+  }
+
+  function togglePause() {
+    if (gameState === 'playing') {
+      gameState = 'paused';
+      showOverlay('PAUSADO', 'O jogo está pausado. Aperte P ou use o botão para voltar.', 'CONTINUAR', resumePlay);
+    } else if (gameState === 'paused') {
+      resumePlay();
+    }
+  }
+
+  function showOverlay(title, desc, btnText, action) {
+    overlayTitle.textContent = title;
+    overlayDesc.textContent = desc;
+    overlayBtn.textContent = btnText;
+    overlayAction = action || null;
+    overlay.classList.remove('hidden');
+    overlayBtn.focus({ preventScroll: true });
+  }
+
+  function hideOverlay() {
+    overlay.classList.add('hidden');
+    overlayAction = null;
+    overlayBtn.blur();
+  }
+
+  // --- Rendering ---
+  let gridLayer = null;
+  function render() {
+    ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    renderWalls();
+    renderBricks();
+    renderLasers();
+    renderCapsules();
+    renderPaddle();
+    renderBalls();
+    renderParticles();
+  }
+
+  function renderWalls() {
+    // The background grid never changes: draw it once to an offscreen canvas.
+    if (!gridLayer) {
+      gridLayer = document.createElement('canvas');
+      gridLayer.width = CANVAS_WIDTH;
+      gridLayer.height = CANVAS_HEIGHT;
+      const g = gridLayer.getContext('2d');
+      g.strokeStyle = 'rgba(0, 240, 255, 0.04)';
+      g.lineWidth = 1;
+      g.beginPath();
+      for (let x = WALL_LEFT; x <= WALL_RIGHT; x += 20) { g.moveTo(x, WALL_TOP); g.lineTo(x, CANVAS_HEIGHT); }
+      for (let y = WALL_TOP; y <= CANVAS_HEIGHT; y += 20) { g.moveTo(WALL_LEFT, y); g.lineTo(WALL_RIGHT, y); }
+      g.stroke();
+    }
+    ctx.drawImage(gridLayer, 0, 0);
+
+    ctx.fillStyle = '#10162b';
+    ctx.fillRect(0, 0, WALL_LEFT, CANVAS_HEIGHT);
+    ctx.fillRect(WALL_RIGHT, 0, CANVAS_WIDTH - WALL_RIGHT, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, CANVAS_WIDTH, WALL_TOP);
+
+    ctx.strokeStyle = '#00f0ff';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#00f0ff';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.moveTo(WALL_LEFT, CANVAS_HEIGHT);
+    ctx.lineTo(WALL_LEFT, WALL_TOP);
+    ctx.lineTo(WALL_RIGHT, WALL_TOP);
+    ctx.lineTo(WALL_RIGHT, CANVAS_HEIGHT);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    if (portalOpen) {
+      ctx.fillStyle = ARK_CAPSULE_RGB.B;
+      ctx.shadowColor = ARK_CAPSULE_RGB.B;
+      ctx.shadowBlur = 15;
+      ctx.fillRect(WALL_RIGHT - 4, PORTAL_TOP, 8, PORTAL_HEIGHT);
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  function renderBricks() {
+    for (const br of bricks) {
+      if (br.hp <= 0) continue;
+      // Silver and gold carry the arcade's own highlight/body/shadow; the colours get a
+      // generic neon bevel.
+      const hi = br.bevel ? br.bevel.hi : 'rgba(255, 255, 255, 0.35)';
+      const lo = br.bevel ? br.bevel.lo : 'rgba(0, 0, 0, 0.35)';
+      ctx.fillStyle = br.bevel ? br.bevel.body : br.color;
+      ctx.fillRect(br.x, br.y, br.w, br.h);
+      ctx.fillStyle = hi;
+      ctx.fillRect(br.x, br.y, br.w, 3);
+      ctx.fillRect(br.x, br.y, 3, br.h);
+      ctx.fillStyle = lo;
+      ctx.fillRect(br.x, br.y + br.h - 3, br.w, 3);
+      ctx.fillRect(br.x + br.w - 3, br.y, 3, br.h);
+
+      if (br.isSilver && br.hp < br.maxHp) {
+        ctx.strokeStyle = '#333344';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(br.x + 5, br.y + 3);
+        ctx.lineTo(br.x + br.w - 8, br.y + br.h - 4);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function renderPaddle() {
+    const px = paddle.x - paddle.width / 2;
+    const py = paddle.y - paddle.height / 2;
+    const laser = mode === 'L';
+
+    ctx.save();
+    const grad = ctx.createLinearGradient(px, py, px, py + paddle.height);
+    grad.addColorStop(0, laser ? '#ff3366' : '#00f0ff');
+    grad.addColorStop(0.5, laser ? '#cc0033' : '#0088cc');
+    grad.addColorStop(1, laser ? '#66001a' : '#003366');
+    ctx.fillStyle = grad;
+    ctx.shadowColor = laser ? '#ff0055' : '#00f0ff';
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.roundRect(px, py, paddle.width, paddle.height, 6);
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(px + 2, py + 2, 6, paddle.height - 4);
+    ctx.fillRect(px + paddle.width - 8, py + 2, 6, paddle.height - 4);
+
+    if (laser) {
+      ctx.fillStyle = '#ffcc00';
+      ctx.fillRect(px + 6, py - 4, 4, 6);
+      ctx.fillRect(px + paddle.width - 10, py - 4, 4, 6);
+    }
+    ctx.restore();
+  }
+
+  function renderBalls() {
+    for (const b of balls) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#00f0ff';
+      ctx.shadowBlur = 12;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(b.x - 2, b.y - 2, b.radius * 0.4, 0, Math.PI * 2);
+      ctx.fillStyle = '#e6ffff';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function renderLasers() {
+    ctx.save();
+    ctx.fillStyle = '#ff0055';
+    ctx.shadowColor = '#ff0055';
+    ctx.shadowBlur = 10;
+    for (const l of lasers) ctx.fillRect(l.x - l.width / 2, l.y, l.width, l.height);
+    ctx.restore();
+  }
+
+  function renderCapsules() {
+    for (const c of capsules) {
+      const pDef = POWERUP_TYPES[c.type];
+      if (!pDef) continue;
+      ctx.save();
+      ctx.translate(c.x, c.y);
+      ctx.fillStyle = pDef.color;
+      ctx.shadowColor = pDef.color;
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.roundRect(-c.w / 2, -c.h / 2, c.w, c.h, 7);
+      ctx.fill();
+      ctx.fillStyle = '#000000';
+      ctx.font = '900 11px Orbitron, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(c.type, 0, 1);
+      ctx.restore();
+    }
+  }
+
+  function renderParticles() {
+    ctx.save();
+    for (const p of particles) {
+      ctx.globalAlpha = p.life;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
+    ctx.restore();
+  }
+
+})();
+</script>
+</body>
+</html>

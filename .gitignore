@@ -1,0 +1,40 @@
+# --- The MAME installation that shares this folder (not part of the project) ---
+*.exe
+mame.sym
+COPYING
+whatsnew.txt
+ui.ini
+uismall.bdf
+artwork/
+bgfx/
+cfg/
+ctrlr/
+hash/
+hlsl/
+ini/
+language/
+nvram/
+plugins/
+samples/
+docs/*
+!docs/ARCADE_RE.md
+
+# --- Taito's copyrighted data: never commit or publish ---
+roms/
+arkanoid.zip
+rom_extracted/
+# graphics decoded from your ROMs by tools/build_rom_assets.py
+generated/
+# MAME screenshots (verification references; tools/mame/*.lua recreate them)
+snap/
+
+# --- Third-party projects kept alongside ---
+arkanoid_msx_disasm/
+claudecode-arkanoid/
+
+# --- Build outputs and local state ---
+tools/out/
+tools/expected_pixels.txt
+__pycache__/
+archive/
+.claude/settings.local.json

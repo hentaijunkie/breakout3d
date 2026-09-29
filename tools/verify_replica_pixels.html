@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Replica vs MAME</title>
+<style>
+  body { background: #111; color: #ccc; font: 14px/1.5 system-ui, sans-serif; margin: 24px; }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  table { border-collapse: collapse; }
+  td, th { padding: 2px 12px; text-align: left; border-bottom: 1px solid #333; }
+  .ok { color: #6d6; }
+  .bad { color: #f66; }
+  #summary { margin: 12px 0; font-weight: bold; }
+  iframe { position: absolute; left: -2000px; width: 600px; height: 800px; }
+</style>
+</head>
+<body>
+<h1>Réplica (gráficos da ROM) × quadros reais do MAME</h1>
+<p>Serve a pasta do projeto (<code>python -m http.server 8000 --bind 127.0.0.1</code>) e abre
+   <code>/tools/verify_replica_pixels.html</code>. Precisa de <code>generated/arkanoid_rom_assets.js</code>,
+   <code>snap/intro/</code> e <code>snap/rip/</code> (veja o README).</p>
+<div id="summary">rodando…</div>
+<table><thead><tr><th>quadro</th><th>referência</th><th>pixels diferentes</th></tr></thead><tbody id="rows"></tbody></table>
+<iframe id="replica" src="../arkanoid_classic.html"></iframe>
+<script>
+/**
+ * Draws frames with the replica's own renderer and diffs them pixel by pixel against
+ * MAME snapshots:
+ *   snap/intro/0000-0003.png  Round 1 intro (tools/mame/vram_dump.lua, MAMEMODE=game,
+ *                             DUMPFRAMES=1225,1260,1300,1330, -snapname intro/%i)
+ *   snap/rip/####.png         every round 118 frames after it is built
+ *                             (tools/mame/rip_all.lua, -snapname rip/%i)
+ * Row 0 (the blinking 1UP) is excluded throughout; for the rounds, so are the top wall
+ * (enemy doors may be opening) and the Vaus rows, whose timing the rip does not pin down.
+ */
+(async function () {
+  const rows = document.getElementById('rows');
+  const summary = document.getElementById('summary');
+  const frame = document.getElementById('replica');
+  await new Promise(r => frame.addEventListener('load', r));
+  const w = frame.contentWindow;
+  if (!w.arkanoidDebug || !w.ARKANOID_ROM) {
+    summary.textContent = 'A réplica não carregou os gráficos da ROM (rode python tools/build_rom_assets.py).';
+    summary.className = 'bad';
+    return;
+  }
+  const canvas = w.document.getElementById('screen');
+  const g = w.arkanoidGame;
+
+  function load(src) {
+    return new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = 224; c.height = 256;
+        const x = c.getContext('2d');
+        x.drawImage(img, 0, 0);
+        res(x.getImageData(0, 0, 224, 256).data);
+      };
+      img.onerror = () => rej(new Error('sem ' + src));
+      img.src = src;
+    });
+  }
+  function diff(ref, skipRows) {
+    const a = canvas.getContext('2d').getImageData(0, 0, 224, 256).data;
+    let bad = 0;
+    for (let i = 0; i < a.length; i += 4) {
+      const row = ((i / 4 / 224) | 0) >> 3;
+      if (skipRows.includes(row)) continue;
+      if (a[i] !== ref[i] || a[i + 1] !== ref[i + 1] || a[i + 2] !== ref[i + 2]) bad++;
+    }
+    return bad;
+  }
+  function report(name, ref, bad) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${name}</td><td>${ref}</td><td class="${bad ? 'bad' : 'ok'}">${bad}</td>`;
+    rows.appendChild(tr);
+    return bad;
+  }
+  function freshGame() {
+    g.phase = 'title';
+    w.arkanoidDebug.run(1, { start: true });
+  }
+
+  let total = 0, checks = 0;
+  try {
+    const intro = [[33, 'ROUND 1'], [73, 'ROUND 1 + READY'], [113, 'Vaus aparecendo'], [143, 'Vaus formada']];
+    for (let i = 0; i < intro.length; i++) {
+      const [t, name] = intro[i];
+      freshGame();
+      w.arkanoidDebug.run(t);
+      const ref = `../snap/intro/000${i}.png`;
+      total += report(`intro t=${t}: ${name}`, ref, diff(await load(ref), [0]));
+      checks++;
+    }
+    for (let n = 1; n <= 33; n++) {
+      freshGame();
+      g.round = n;
+      g.buildRound();
+      w.arkanoidDebug.run(0, {}, { tilesOnly: true });
+      const ref = `../snap/rip/${String(n - 1).padStart(4, '0')}.png`;
+      total += report(`round ${n}`, ref, diff(await load(ref), [0, 2, 28, 29, 30]));
+      checks++;
+    }
+    summary.textContent = total ? `${total} pixels diferentes em ${checks} quadros` : `PASS - ${checks} quadros idênticos ao MAME`;
+    summary.className = total ? 'bad' : 'ok';
+  } catch (e) {
+    summary.textContent = String(e.message || e);
+    summary.className = 'bad';
+  }
+  document.title = summary.textContent;
+})();
+</script>
+</body>
+</html>
